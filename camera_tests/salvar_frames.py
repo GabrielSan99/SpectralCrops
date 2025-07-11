@@ -39,7 +39,7 @@ frame_count = 0
 
 
 # Cria a pasta 'frames' se ainda não existir
-now = datetime.now().strftime("frames_%Y-%m-%d_%H-%M-%S")
+now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 output_folder = "frames_" + now 
 os.makedirs(output_folder, exist_ok=True)
 
