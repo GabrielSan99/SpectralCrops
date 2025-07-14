@@ -6,12 +6,60 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/png" href="{% static 'img/SpectralCrops-figure.png' %}">
     <link rel="stylesheet" href="{% static 'css/login_styles.css' %}">
+    <title>SpectralCrops</title>
 </head>
+
+<script>
+    function togglePassword() {
+        const passwordInput = document.getElementById("password");
+        const toggleButton = document.querySelector(".toggle-password");
+
+        if (passwordInput.type === "password") {
+            passwordInput.type = "text";
+            toggleButton.textContent = "🙈"; // Ícone de esconder
+        } else {
+            passwordInput.type = "password";
+            toggleButton.textContent = "👁️"; // Ícone de ver
+        }
+    }
+</script>
+
 <body>
-    <div>
-        <div class="wave"></div>
-        <div class="wave"></div>
-        <div class="wave"></div>
+    <!-- Fundo animado -->
+    <div class="wave"></div>
+    <div class="wave wave2"></div>
+    <div class="wave wave3"></div>
+
+    <!-- Card central -->
+     
+    <div class="login-container">
+        <img src="{% static 'img/SpectralCrops-removed_background.png' %}" alt="">
+        <div class="login-card">
+            <h2>Login</h2>
+            <form method="post">
+                {% csrf_token %}
+    <div class="form-group">
+        {{ form.username.label_tag }}
+        {{ form.username }}
+        {% if form.username.errors %}
+            <div class="error">{{ form.username.errors }}</div>
+        {% endif %}
     </div>
+
+    <div class="form-group password-container">
+        {{ form.password.label_tag }}
+        {{ form.password }}
+        <button type="button" class="toggle-password" onclick="togglePassword()">👁️</button>
+        {% if form.password.errors %}
+            <div class="error">{{ form.password.errors }}</div>
+        {% endif %}
+    </div>
+
+    <button type="submit">Entrar</button>
+            </form>
+        </div>
+    </div>
+
+
 </body>
 </html>

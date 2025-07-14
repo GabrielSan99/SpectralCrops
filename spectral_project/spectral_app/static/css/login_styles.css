@@ -1,13 +1,31 @@
-body {
-    margin: auto;
+@font-face {
+  font-family: 'Roboto-Regular';
+  src: url("font/roboto/Roboto-Regular.ttf") format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Roboto-Thin';
+  src: url("font/roboto/Roboto-Thin.ttf") format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+
+html, body {
+    height: 100%;
+    margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    overflow: auto;
     background: linear-gradient(315deg, rgba(101,0,94,1) 3%, rgba(60,132,206,1) 38%, rgba(48,238,226,1) 68%, rgba(255,25,25,1) 98%);
     animation: gradient 15s ease infinite;
     background-size: 400% 400%;
     background-attachment: fixed;
+    overflow: hidden;
+    position: relative;
 }
 
+/* Animação do gradiente */
 @keyframes gradient {
     0% {
         background-position: 0% 0%;
@@ -20,50 +38,91 @@ body {
     }
 }
 
+/* Camada das waves (fundo animado inferior) */
 .wave {
-    background: rgb(255 255 255 / 25%);
+    background: rgba(255, 255, 255, 0.25);
     border-radius: 1000% 1000% 0 0;
-    position: fixed;
+    position: absolute;
     width: 200%;
     height: 12em;
+    bottom: 0;
+    left: 0;
+    z-index: 0;
     animation: wave 10s -3s linear infinite;
     transform: translate3d(0, 0, 0);
     opacity: 0.8;
-    bottom: 0;
-    left: 0;
-    z-index: -1;
 }
 
-.wave:nth-of-type(2) {
+.wave2 {
     bottom: -1.25em;
     animation: wave 18s linear reverse infinite;
     opacity: 0.8;
 }
 
-.wave:nth-of-type(3) {
+.wave3 {
     bottom: -2.5em;
     animation: wave 20s -1s reverse infinite;
     opacity: 0.9;
 }
 
 @keyframes wave {
-    2% {
-        transform: translateX(1);
-    }
+    2% { transform: translateX(1); }
+    25% { transform: translateX(-25%); }
+    50% { transform: translateX(-50%); }
+    75% { transform: translateX(-25%); }
+    100% { transform: translateX(1); }
+}
 
-    25% {
-        transform: translateX(-25%);
-    }
+/* Container central para o card */
+.login-container {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    z-index: 2;
+}
 
-    50% {
-        transform: translateX(-50%);
-    }
+/* Estilo do card de login */
+.login-card {
+    background-color: #ffffff48;
+    padding: 2rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    width: 100%;
+    max-width: 400px;
+}
 
-    75% {
-        transform: translateX(-25%);
-    }
+.login-card h2 {
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
 
-    100% {
-        transform: translateX(1);
-    }
+.login-card form {
+    display: flex;
+    flex-direction: column;
+}
+
+.login-card input {
+    padding: 0.8rem;
+    margin-bottom: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    font-size: 1rem;
+}
+
+.login-card button {
+    padding: 0.8rem;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.2s ease-in-out;
+}
+
+.login-card button:hover {
+    background-color: #0056b3;
 }
