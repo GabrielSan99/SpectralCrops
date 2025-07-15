@@ -1,2 +1,3 @@
 venv/
+spectral_project/db.qlite3
 **/frames_*/
