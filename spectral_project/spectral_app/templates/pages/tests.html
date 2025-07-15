@@ -1,0 +1,24 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="{% static 'img/SpectralCrops-figure.png' %}">
+    <title>Document</title>
+</head>
+<body>
+
+    <h1>Controle de Ações</h1>
+
+    <form method="post">
+        {% csrf_token %}
+        <button type="submit" name="action" value="get_frame">Get Frame</button>
+        <button type="submit" name="action" value="white_led">White</button>
+        <button type="submit" name="action" value="yellow_led">Yellow</button>
+        <button type="submit" name="action" value="red_led">Red</button>
+        <button type="submit" name="action" value="blue_led">Blue</button>
+        <button type="submit" name="action" value="turn_off">Turn Off Leds</button>
+    </form>
+</body>
+</html>
