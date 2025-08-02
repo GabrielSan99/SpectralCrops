@@ -17,7 +17,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', views.index, name="index"),
 
-
+    path('video_feed/', views.video_feed, name='video_feed'),
 
 
     path('tests/', views.tests, name="tests"),
