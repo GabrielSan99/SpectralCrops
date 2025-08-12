@@ -55,7 +55,7 @@ def tests(request):
 
         elif action == 'red_led':
             print("Turn on red led!")
-            pi.write(YELLOW_LED, 1)
+            pi.write(RED_LED, 1)
 
         elif action == 'blue_led':
             print("Turn on blue led!")
