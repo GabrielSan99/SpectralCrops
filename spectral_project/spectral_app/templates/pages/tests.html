@@ -6,6 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/png" href="{% static 'img/SpectralCrops-figure.png' %}">
     <link rel="stylesheet" href="{% static 'css/tests_styles.css' %}">
+    <link rel="stylesheet" href="{% static 'css/bootstrap.min.css' %}">
+
     <title>Document</title>
 </head>
 <body>
@@ -22,6 +24,61 @@
             <button type="submit" name="action" value="get_all_bands">Get All Bands</button>
         </form>
     </div>
-    <!-- <img src="{% url 'video_feed' %}" alt="Stream da câmera" /> -->
+    <div class="stream-div">
+        <!-- <img src="{% url 'video_feed' %}" class="img-fluid" alt="Stream da câmera" /> -->
+    </div>
+
+    <div>
+        <canvas id="canvas"></canvas>
+    </div>
+    <img src="{% static 'img/spectral-crops.svg' %}">
+    <button id="submit">Enviar ROI</button>
+
+
+
+    <script>
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const img = document.getElementById('source-image');
+
+    let startX, startY, isDrawing = false;
+    let rect = {}; // armazena a região selecionada
+
+    // Carrega imagem no canvas
+    img.onload = function() {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+    }
+
+    // Eventos do mouse
+    canvas.addEventListener('mousedown', e => {
+        startX = e.offsetX;
+        startY = e.offsetY;
+        isDrawing = true;
+    });
+
+    canvas.addEventListener('mousemove', e => {
+        if (!isDrawing) return;
+        const x = e.offsetX;
+        const y = e.offsetY;
+        const width = x - startX;
+        const height = y - startY;
+
+        // redesenha a imagem e o retângulo
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        ctx.strokeStyle = 'red';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(startX, startY, width, height);
+
+        rect = {x: startX, y: startY, width: width, height: height};
+    });
+
+    canvas.addEventListener('mouseup', e => {
+        isDrawing = false;
+    });
+    </script>
 </body>
 </html>

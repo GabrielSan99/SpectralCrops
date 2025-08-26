@@ -12,6 +12,7 @@ import os
 from datetime import datetime
 import time
 
+camera = BlueFoxCamera()
 
 # Create your views here.
 # MARK: HOME
@@ -27,7 +28,6 @@ def index(request):
 
 @login_required
 def video_feed(request):
-    camera = BlueFoxCamera()
     return StreamingHttpResponse(camera.stream_frames(),
                                  content_type='multipart/x-mixed-replace; boundary=frame')
 
@@ -72,7 +72,6 @@ def tests(request):
             print("Saved frame!")
 
             now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            camera = BlueFoxCamera()
             camera.save_frame(filename=f"capture_{now}.png")
         
         elif action == 'get_all_bands':
@@ -84,12 +83,11 @@ def tests(request):
             pi.write(WHITE_LED, 0)
 
             now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            camera = BlueFoxCamera()
-
+            print(1111)
             pi.write(RED_LED, 1)
             camera.save_frame(filename=f"red_{now}.png", folder=f"captures_{now}")
             pi.write(RED_LED, 0)
-            
+            print(2222)
             pi.write(YELLOW_LED, 1)
             camera.save_frame(filename=f"yellow_{now}.png", folder=f"captures_{now}")
             pi.write(YELLOW_LED, 0)
