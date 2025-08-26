@@ -18,6 +18,7 @@ urlpatterns = [
     path('', views.index, name="index"),
 
     path('video_feed/', views.video_feed, name='video_feed'),
+    path('img_segmentation/', views.img_segmentation, name='img_segmentation'),
 
 
     path('tests/', views.tests, name="tests"),

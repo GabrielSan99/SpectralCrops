@@ -26,36 +26,86 @@
     </div>
     <div class="stream-div">
         <!-- <img src="{% url 'video_feed' %}" class="img-fluid" alt="Stream da câmera" /> -->
-    
-    
     </div>
 
-    <div>
-        <canvas id="canvas"></canvas>
-    </div>
-    <img src="{% static 'img/spectral-crops.svg' %}">
+    <style>
+  canvas {
+    border: 1px solid black;
+    cursor: crosshair;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+<br>
+<button id="extrairBtn">Extrair Seleção</button>
+<br>
+<img id="resultado" alt="Feijão Selecionado">
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+const img = new Image();
+img.src = '/static/img/feijoes.jpeg'; // Coloque sua imagem na pasta static
+img.onload = () => {
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+};
+
+let startX, startY, endX, endY, isDrawing = false;
+
+canvas.addEventListener('mousedown', e => {
+    startX = e.offsetX;
+    startY = e.offsetY;
+    isDrawing = true;
+});
+
+canvas.addEventListener('mousemove', e => {
+    if (!isDrawing) return;
+    endX = e.offsetX;
+    endY = e.offsetY;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0);
+    ctx.strokeStyle = 'red';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(startX, startY, endX - startX, endY - startY);
+});
+
+canvas.addEventListener('mouseup', e => {
+    isDrawing = false;
+});
+
+document.getElementById('extrairBtn').addEventListener('click', () => {
+    const width = endX - startX;
+    const height = endY - startY;
+    if(width <= 0 || height <= 0) return alert("Seleção inválida!");
+
+    const selectionCanvas = document.createElement('canvas');
+    const selectionCtx = selectionCanvas.getContext('2d');
+    selectionCanvas.width = width;
+    selectionCanvas.height = height;
+
+    selectionCtx.drawImage(img, startX, startY, width, height, 0, 0, width, height);
+    const dataURL = selectionCanvas.toDataURL();
+
+    document.getElementById('resultado').src = dataURL;
+
+    // Enviar para Django
+    fetch('/img_segmentation/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': '{{ csrf_token }}' },
+        body: 'imagem=' + encodeURIComponent(dataURL)
+    }).then(res => res.json())
+      .then(data => {
+          if(data.status === "ok") alert("Salvo em: " + data.url);
+      });
+});
+</script>
     
-    
 
-
-
-    <script>
-
-    const imageElement = document.getElementById("image");
-    const canvasElement = document.createElement("canvas");
-    const ctx = canvasElement.getContext("2d");
-    const width = 100, height = width;
-
-    // Define the size of the canvas element.
-    canvasElement.width = width;
-    canvasElement.height = height;
-
-    let imgX = imageElement.naturalWidth - width;
-    let imgY = 0;
-    ctx.drawImage(imageElement, imgX, imgY, width, height, 0, 0, canvasElement.width, canvasElement.height);
-    
-    imageElement.src = canvasElement.toDataURL();
-
-    </script>
 </body>
 </html>

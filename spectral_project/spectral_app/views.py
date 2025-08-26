@@ -1,6 +1,10 @@
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.csrf import csrf_exempt
 from django.http import StreamingHttpResponse
+from django.core.files.base import ContentFile
+from django.http import JsonResponse
+
 
 import pigpio
 from mvIMPACT import acquire
@@ -10,6 +14,7 @@ import numpy as np
 from PIL import Image
 import os
 from datetime import datetime
+import base64
 import time
 
 camera = BlueFoxCamera()
@@ -30,6 +35,26 @@ def index(request):
 def video_feed(request):
     return StreamingHttpResponse(camera.stream_frames(),
                                  content_type='multipart/x-mixed-replace; boundary=frame')
+
+@csrf_exempt
+def img_segmentation(request):
+    if request.method == "POST":
+        data_url = request.POST.get("imagem")
+        format, imgstr = data_url.split(';base64,') 
+        ext = format.split('/')[-1] 
+        data = ContentFile(base64.b64decode(imgstr), name='sample_selected.' + ext)
+        
+        # Aqui você poderia salvar no modelo, ou apenas retornar OK
+        # Exemplo: salvar em MEDIA_ROOT
+        from django.conf import settings
+        import os
+        path = os.path.join(settings.MEDIA_ROOT, data.name)
+        with open(path, 'wb') as f:
+            f.write(data.read())
+
+        return JsonResponse({"status": "ok", "url": f"/media/{data.name}"})
+    return JsonResponse({"status": "erro"})
+
 
 @login_required
 def tests(request):
