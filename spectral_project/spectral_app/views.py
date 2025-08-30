@@ -1,6 +1,10 @@
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.csrf import csrf_exempt
 from django.http import StreamingHttpResponse
+from django.core.files.base import ContentFile
+from django.http import JsonResponse
+
 
 import pigpio
 # from mvIMPACT import acquire
@@ -10,8 +14,10 @@ import numpy as np
 from PIL import Image
 import os
 from datetime import datetime
+import base64
 import time
 
+camera = BlueFoxCamera()
 
 # Create your views here.
 # MARK: HOME
@@ -27,9 +33,28 @@ def index(request):
 
 @login_required
 def video_feed(request):
-    camera = BlueFoxCamera()
     return StreamingHttpResponse(camera.stream_frames(),
                                  content_type='multipart/x-mixed-replace; boundary=frame')
+
+@csrf_exempt
+def img_segmentation(request):
+    if request.method == "POST":
+        data_url = request.POST.get("imagem")
+        format, imgstr = data_url.split(';base64,') 
+        ext = format.split('/')[-1] 
+        data = ContentFile(base64.b64decode(imgstr), name='sample_selected.' + ext)
+        
+        # Aqui você poderia salvar no modelo, ou apenas retornar OK
+        # Exemplo: salvar em MEDIA_ROOT
+        from django.conf import settings
+        import os
+        path = os.path.join(settings.MEDIA_ROOT, data.name)
+        with open(path, 'wb') as f:
+            f.write(data.read())
+
+        return JsonResponse({"status": "ok", "url": f"/media/{data.name}"})
+    return JsonResponse({"status": "erro"})
+
 
 @login_required
 def tests(request):
@@ -72,7 +97,6 @@ def tests(request):
             print("Saved frame!")
 
             now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            camera = BlueFoxCamera()
             camera.save_frame(filename=f"capture_{now}.png")
         
         elif action == 'get_all_bands':
@@ -84,12 +108,11 @@ def tests(request):
             pi.write(WHITE_LED, 0)
 
             now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            camera = BlueFoxCamera()
-
+            print(1111)
             pi.write(RED_LED, 1)
             camera.save_frame(filename=f"red_{now}.png", folder=f"captures_{now}")
             pi.write(RED_LED, 0)
-            
+            print(2222)
             pi.write(YELLOW_LED, 1)
             camera.save_frame(filename=f"yellow_{now}.png", folder=f"captures_{now}")
             pi.write(YELLOW_LED, 0)
