@@ -3,8 +3,8 @@ from django.contrib.auth.decorators import login_required
 from django.http import StreamingHttpResponse
 
 import pigpio
-from mvIMPACT import acquire
-from .camera_functions import *
+# from mvIMPACT import acquire
+# from .camera_functions import *
 import ctypes
 import numpy as np
 from PIL import Image
