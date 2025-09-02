@@ -25,30 +25,30 @@
         </form>
     </div>
     <div class="stream-div">
-        <!-- <img src="{% url 'video_feed' %}" class="img-fluid" alt="Stream da câmera" /> -->
+        <!-- <img src="{% url 'video_feed' %}" class="img-fluid" alt="Camera Stream" /> -->
     </div>
+    <div class="canvas-div">
+        <canvas id="canvas"></canvas>
+    </div>
+    <div class="btns-div">
+        <button id="extrairBtn">Extract Selection</button>
+        <button id="extrairBtn">Segment Selection</button>
+    </div>
+    <div class="results-div">
+        <img id="resultado" alt="Feijão Selecionado">
+    </div>
+        
 
-    <style>
-  canvas {
-    border: 1px solid black;
-    cursor: crosshair;
-  }
-</style>
-</head>
-<body>
 
-<canvas id="canvas"></canvas>
-<br>
-<button id="extrairBtn">Extrair Seleção</button>
-<br>
-<img id="resultado" alt="Feijão Selecionado">
+
 
 <script>
+
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 
 const img = new Image();
-img.src = '/static/img/feijoes.jpeg'; // Coloque sua imagem na pasta static
+img.src = '/static/img/beans.png'; // Coloque sua imagem na pasta static
 img.onload = () => {
     canvas.width = img.width;
     canvas.height = img.height;

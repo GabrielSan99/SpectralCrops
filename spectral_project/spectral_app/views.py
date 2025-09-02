@@ -17,7 +17,7 @@ from datetime import datetime
 import base64
 import time
 
-camera = BlueFoxCamera()
+# camera = BlueFoxCamera()
 
 # Create your views here.
 # MARK: HOME
