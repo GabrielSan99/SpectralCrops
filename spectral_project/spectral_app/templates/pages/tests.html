@@ -31,11 +31,11 @@
         <canvas id="canvas"></canvas>
     </div>
     <div class="btns-div">
-        <button id="extrairBtn">Extract Selection</button>
-        <button id="extrairBtn">Segment Selection</button>
+        <button id="extractBtn">Extract Selection</button>
+        <button id="segmentBtn">Segment Selection</button>
     </div>
     <div class="results-div">
-        <img id="resultado" alt="Feijão Selecionado">
+        <img id="extracResult">
     </div>
         
 
@@ -48,7 +48,7 @@ const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 
 const img = new Image();
-img.src = '/static/img/beans.png'; // Coloque sua imagem na pasta static
+img.src = '/static/img/beans.png'; 
 img.onload = () => {
     canvas.width = img.width;
     canvas.height = img.height;
@@ -79,7 +79,7 @@ canvas.addEventListener('mouseup', e => {
     isDrawing = false;
 });
 
-document.getElementById('extrairBtn').addEventListener('click', () => {
+document.getElementById('extractBtn').addEventListener('click', () => {
     const width = endX - startX;
     const height = endY - startY;
     if(width <= 0 || height <= 0) return alert("Seleção inválida!");
@@ -92,13 +92,13 @@ document.getElementById('extrairBtn').addEventListener('click', () => {
     selectionCtx.drawImage(img, startX, startY, width, height, 0, 0, width, height);
     const dataURL = selectionCanvas.toDataURL();
 
-    document.getElementById('resultado').src = dataURL;
+    document.getElementById('extracResult').src = dataURL;
 
     // Enviar para Django
-    fetch('/img_segmentation/', {
+    fetch('/img_extraction/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': '{{ csrf_token }}' },
-        body: 'imagem=' + encodeURIComponent(dataURL)
+        body: 'imagem=' + encodeURIComponent(dataURL), 
     }).then(res => res.json())
       .then(data => {
           if(data.status === "ok") alert("Salvo em: " + data.url);

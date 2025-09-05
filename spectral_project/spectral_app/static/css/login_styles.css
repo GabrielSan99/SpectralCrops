@@ -78,7 +78,6 @@ html, body {
     max-width: 500px;
 }
 
-/* Container central para o card */
 .login-container {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
@@ -95,29 +94,70 @@ html, body {
     padding: 2rem;
     border-radius: 12px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    width: 100%;
-    max-width: 400px;
+    width: 80%;           /* ocupa 90% da tela em mobile */
+    max-width: 400px;     /* máximo 400px em telas maiores */
+    box-sizing: border-box; /* garante padding correto */
 }
 
 .login-card h2 {
-    margin-bottom: 1.5rem;
+    margin-bottom: 2rem;
     text-align: center;
+    font-weight: bolder;
 }
 
 .login-card form {
     display: flex;
     flex-direction: column;
+}  
+
+
+
+
+.username-container{
+    width: 100%;
+    display: flex;
+    align-items: center;
 }
 
-.login-card input {
+.username-container label {
+    width: 25%;
+    font-weight: bold;
+}
+
+.username-container input {
+    width: 100%;          /* ocupa toda a largura do card */
     padding: 0.8rem;
-    margin-bottom: 1rem;
     border: 1px solid #ccc;
     border-radius: 8px;
     font-size: 1rem;
+    box-sizing: border-box;
 }
 
-.login-card button {
+
+
+.password-container{
+    width: 100%;
+    display: flex;
+    align-items: center;
+}
+
+.password-container label {
+    margin: 0;
+    width: 25%;
+    font-weight: bold;
+}
+
+.password-container input {
+    width: 78%;         
+    padding: 0.8rem;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    font-size: 1rem;
+    box-sizing: border-box;
+}
+
+.password-container button {
+    width: 20%;          
     padding: 0.8rem;
     background-color: #007bff;
     color: white;
@@ -128,6 +168,47 @@ html, body {
     transition: background-color 0.2s ease-in-out;
 }
 
-.login-card button:hover {
+.password-container button:hover {
     background-color: #0056b3;
+}
+
+
+
+
+
+.submit-container button {
+    width: 100%;
+    padding: 0.8rem;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.2s ease-in-out;
+}
+.submit-container button:hover {
+    background-color: #0056b3;
+}
+
+
+
+
+
+/* Vista para celulares */
+@media (max-width: 700px) {
+
+    .login-card {
+        padding: 1.5rem;
+    }
+
+    .login-card h2 {
+        font-size: 1.5rem;
+    }
+    .username-container label {
+        width: 40%;
+    }
+    .password-container label {
+        width: 40%;
+    }
 }
