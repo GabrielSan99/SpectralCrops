@@ -110,11 +110,40 @@ html, body {
 }
 
 .login-card input {
+    width: 100%;
+    box-sizing: border-box;
     padding: 0.8rem;
     margin-bottom: 1rem;
     border: 1px solid #ccc;
     border-radius: 8px;
     font-size: 1rem;
+}
+
+.password-container {
+    position: relative;
+    margin-bottom: 1rem;
+}
+
+.password-container input {
+    margin-bottom: 0;
+    padding-right: 2.5rem;
+}
+
+.password-container .toggle-password {
+    position: absolute;
+    top: 50%;
+    right: 0.5rem;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    background-color: transparent;
+    border: none;
+    border-radius: 0;
+    color: #555;
+    cursor: pointer;
+    padding: 0;
 }
 
 .login-card button {

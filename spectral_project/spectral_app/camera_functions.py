@@ -1,124 +1,56 @@
 import threading
 import time
 import os
-import ctypes
-import numpy as np
 import cv2
 from PIL import Image
-from mvIMPACT import acquire
 
-class BlueFoxCamera:
+class ArducamCamera:
     _instance = None
     _lock = threading.Lock()
 
-    def __new__(cls):
+    def __new__(cls, device_index=0):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._init_camera()
+            cls._instance._init_camera(device_index)
         return cls._instance
 
-    def _init_camera(self):
-        self.devMgr = acquire.DeviceManager()
-        if self.devMgr.deviceCount() == 0:
+    def _init_camera(self, device_index):
+        self.cap = cv2.VideoCapture(device_index)
+        if not self.cap.isOpened():
             raise Exception("Nenhuma câmera encontrada.")
 
-        self.pDev = self.devMgr[0]
-        self.pDev.open()
-        self.fi = acquire.FunctionInterface(self.pDev)
-
-        # Enfileira alguns buffers
-        for _ in range(5):
-            self.fi.imageRequestSingle()
-
-        ASSB_USER = 0
-        if self.pDev.acquisitionStartStopBehaviour.read() == ASSB_USER:
-            self.fi.acquisitionStart()
-
-    def _capture_request(self):
-        """Solicita um frame da câmera e retorna request."""
-        requestNr = self.fi.imageRequestWaitFor(5000)
-        if not self.fi.isRequestNrValid(requestNr):
+    def _capture_frame(self):
+        """Captura um frame da câmera e retorna o array BGR."""
+        ret, frame = self.cap.read()
+        if not ret:
             return None
-        return self.fi.getRequest(requestNr)
+        return frame
 
     def save_frame(self, filename, folder=""):
-        with BlueFoxCamera._lock:
-            pRequest = self._capture_request()
-            if not pRequest or not pRequest.isOK:
+        with ArducamCamera._lock:
+            frame = self._capture_frame()
+            if frame is None:
                 print("Erro ao capturar imagem.")
                 return
 
-            width = pRequest.imageWidth.read()
-            height = pRequest.imageHeight.read()
-            channels = pRequest.imageChannelCount.read()
-            bitDepth = pRequest.imageChannelBitDepth.read()
-            bufferPtr = pRequest.imageData.read()
-            bufferSize = pRequest.imageSize.read()
-
-            cbuf = (ctypes.c_char * bufferSize).from_address(int(bufferPtr))
-            dtype = np.uint16 if bitDepth > 8 else np.uint8
-            img_array = np.frombuffer(cbuf, dtype=dtype)
-
-            if channels == 1:
-                frame = img_array.reshape((height, width))
-            else:
-                frame = img_array.reshape((height, width, channels))
-
             output_folder = os.path.join("captures_test", folder)
-            os.makedirs(output_folder, exist_ok=True) 
+            os.makedirs(output_folder, exist_ok=True)
             path = os.path.join(output_folder, filename)
 
-            if channels == 1:
-                pil_img = Image.fromarray(frame, mode='I;16' if bitDepth > 8 else 'L')
-            else:
-                pil_img = Image.fromarray(frame, mode='RGB')
-
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(rgb_frame)
             pil_img.save(path)
             print(f"Frame salvo em: {path}")
 
-            pRequest.unlock()
-            self.fi.imageRequestSingle()
-
     def stream_frames(self):
-        pPreviousRequest = None
-        try:
-            while True:
-                with BlueFoxCamera._lock:
-                    pRequest = self._capture_request()
-                    if pRequest and pRequest.isOK:
-                        width = pRequest.imageWidth.read()
-                        height = pRequest.imageHeight.read()
-                        channels = pRequest.imageChannelCount.read()
-                        bitDepth = pRequest.imageChannelBitDepth.read()
-                        bufferPtr = pRequest.imageData.read()
-                        bufferSize = pRequest.imageSize.read()
+        while True:
+            with ArducamCamera._lock:
+                frame = self._capture_frame()
 
-                        cbuf = (ctypes.c_char * bufferSize).from_address(int(bufferPtr))
-                        dtype = np.uint16 if bitDepth > 8 else np.uint8
-                        img_array = np.frombuffer(cbuf, dtype=dtype)
+            if frame is not None:
+                ret, jpeg = cv2.imencode('.jpg', frame)
+                if ret:
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
 
-                        if channels == 1:
-                            frame = img_array.reshape((height, width))
-                        else:
-                            frame = img_array.reshape((height, width, channels))
-
-                        if bitDepth > 8:
-                            display_frame = cv2.convertScaleAbs(frame, alpha=(255.0/65535.0))
-                        else:
-                            display_frame = frame
-
-                        ret, jpeg = cv2.imencode('.jpg', display_frame)
-                        if ret:
-                            yield (b'--frame\r\n'
-                                   b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
-
-                    if pPreviousRequest:
-                        pPreviousRequest.unlock()
-                    pPreviousRequest = pRequest
-                    self.fi.imageRequestSingle()
-
-                time.sleep(0.01)
-
-        finally:
-            if pPreviousRequest:
-                pPreviousRequest.unlock()
+            time.sleep(0.01)

@@ -1,0 +1,17 @@
+h1{
+    text-align: center;
+}
+
+.forms-div{
+    justify-content: center;
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+}
+
+.stream-div{
+    justify-content: center;
+    align-items: center;
+    display: flex;
+    margin-top: 30px;
+}

@@ -7,17 +7,13 @@ from django.http import JsonResponse
 
 
 import pigpio
-from mvIMPACT import acquire
 from .camera_functions import *
-import ctypes
-import numpy as np
-from PIL import Image
 import os
 from datetime import datetime
 import base64
 import time
 
-camera = BlueFoxCamera()
+camera = ArducamCamera()
 
 # Create your views here.
 # MARK: HOME
