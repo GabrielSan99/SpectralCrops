@@ -15,3 +15,31 @@ h1{
     display: flex;
     margin-top: 30px;
 }
+
+.canvas-div{
+    justify-content: center;
+    align-items: center;
+    display: flex;
+    margin-top: 30px;
+}
+canvas{
+    border: 1px solid black;
+    cursor: crosshair;
+}
+
+.btns-div{
+    justify-content: center;
+    align-items: center;
+    display: flex;
+    margin-top: 30px;
+    gap: 15px;
+}
+
+.results-div{
+     justify-content: center;
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    margin-top: 30px;
+    gap: 40px;
+}
