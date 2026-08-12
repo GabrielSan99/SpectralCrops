@@ -2,12 +2,238 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="{% static 'img/SpectralCrops-figure.png' %}">
-    <title>Document</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/png" href="{% static 'img/SpectralCrops-figure.png' %}">
+  <title>SpectralCrops</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f4f6f8; --panel: #ffffff; --line: #e6e9ee;
+      --ink: #1f2937; --muted: #8a93a2; --muted2: #6b7280;
+      --blue: #2f66e0; --blue-soft: #eaf0fd;
+      --green: #2f9e5f;
+    }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--ink);
+      display: flex; min-height: 100vh;
+    }
+
+    /* ── Sidebar oculta, revelada no hover do puxador ── */
+    .side-trigger { position: fixed; left: 0; top: 0; height: 100vh; z-index: 50; }
+    .side-handle {
+      position: absolute; left: 0; top: 16px; width: 40px; height: 48px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--panel); border: 1px solid var(--line); border-left: none;
+      border-radius: 0 12px 12px 0; color: var(--muted); cursor: pointer;
+      box-shadow: 2px 0 10px rgba(16,24,40,0.08); transition: opacity .2s;
+    }
+    .side-handle svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; }
+    .side-trigger:hover .side-handle, .sidebar:focus-within ~ .side-handle { opacity: 0; }
+
+    .sidebar {
+      position: absolute; left: 0; top: 0; height: 100vh;
+      width: 250px; background: var(--panel); border-right: 1px solid var(--line);
+      padding: 1.6rem 1.1rem; display: flex; flex-direction: column; gap: 2rem;
+      transform: translateX(-100%); transition: transform .28s ease;
+      box-shadow: 6px 0 24px rgba(16,24,40,0.14);
+    }
+    .side-trigger:hover .sidebar, .sidebar:focus-within { transform: translateX(0); }
+    .logo { padding: 0.4rem 0.6rem; }
+    .logo img { width: 100%; max-width: 190px; height: auto; }
+    nav { display: flex; flex-direction: column; gap: 0.4rem; }
+    nav a {
+      display: flex; align-items: center; gap: 0.9rem;
+      padding: 0.8rem 1rem; border-radius: 10px;
+      color: var(--muted2); text-decoration: none; font-size: 0.98rem;
+      font-weight: 500; transition: background .15s, color .15s;
+    }
+    nav a svg { width: 20px; height: 20px; stroke: currentColor;
+                fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+    nav a:hover { background: #f1f3f7; color: var(--ink); }
+    nav a.active { background: var(--blue); color: #fff; }
+
+    /* ── Main ── */
+    .main { flex: 1; padding: 2.6rem 3rem 2.6rem 3.6rem; overflow-y: auto; }
+    .welcome-title { font-size: 2.1rem; font-weight: 700; letter-spacing: -0.01em; }
+    .welcome-sub { color: var(--muted2); font-size: 1.05rem; margin-top: 0.5rem;
+                   max-width: 620px; line-height: 1.5; }
+
+    .cards {
+      margin-top: 2.2rem; display: grid; gap: 1.5rem;
+      grid-template-columns: 1fr 1fr; align-items: start;
+    }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 14px; padding: 1.5rem 1.6rem;
+      box-shadow: 0 1px 2px rgba(16,24,40,0.04);
+    }
+    .card h3 { font-size: 1.15rem; font-weight: 700; margin-bottom: 1.1rem; }
+
+    /* Recent Analyses */
+    .analysis-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 0.85rem 0; border-top: 1px solid var(--line); font-size: 0.98rem;
+    }
+    .analysis-row:first-of-type { border-top: none; }
+    .analysis-row .sid { color: var(--ink); font-weight: 500; }
+    .analysis-row .date { color: var(--muted); }
+
+    /* Field Statistics */
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .stat {
+      border-radius: 12px; padding: 1.1rem 1.2rem; color: #fff;
+      display: flex; flex-direction: column; gap: 0.5rem;
+    }
+    .stat.blue  { background: var(--blue); }
+    .stat.green { background: var(--green); }
+    .stat .label { font-size: 0.95rem; font-weight: 500; opacity: 0.95; }
+    .stat .value { font-size: 1.9rem; font-weight: 700; line-height: 1; }
+    .stat .value small { font-size: 1rem; font-weight: 500; opacity: 0.9; }
+
+    /* Chart */
+    .chart-svg { width: 100%; height: auto; display: block; }
+    .chart-svg .grid { stroke: var(--line); stroke-width: 1; }
+    .chart-svg .axis { fill: var(--muted); font-size: 12px;
+                       font-family: 'Segoe UI', system-ui, sans-serif; }
+    .chart-svg .area { fill: url(#ndviFill); }
+    .chart-svg .line { fill: none; stroke: var(--blue); stroke-width: 3;
+                       stroke-linecap: round; stroke-linejoin: round; }
+
+    @media (max-width: 900px) {
+      .main { padding: 1.6rem 1.2rem 1.6rem 3.6rem; }
+      .cards { grid-template-columns: 1fr; }
+    }
+  </style>
 </head>
 <body>
-    Hello World!
+
+  <!-- ── Sidebar oculta: aparece ao passar o mouse no puxador da esquerda ── -->
+  <div class="side-trigger">
+    <div class="side-handle" aria-label="Abrir menu">
+      <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </div>
+  <aside class="sidebar">
+    <div class="logo">
+      <img src="{% static 'img/SpectralCrops-removed_background.png' %}" alt="SpectralCrops">
+    </div>
+    <nav>
+      <a class="active" href="{% url 'index' %}">
+        <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
+        Home
+      </a>
+      <a href="{% url 'tests' %}">
+        <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        Data Acquisition
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l3-4 3 3 4-6"/></svg>
+        Analysis
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9zM9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>
+        Machine Learning
+      </a>
+      <a href="{% url 'parameterization' %}">
+        <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="2" fill="currentColor" stroke="none"/></svg>
+        Parameterization
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 0 1-4 0v-.1A1.6 1.6 0 0 0 6.6 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 4 13.6H3.9a2 2 0 0 1 0-4H4a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10.5 4H10.6a2 2 0 0 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8Z"/></svg>
+        Settings
+      </a>
+    </nav>
+  </aside>
+  </div><!-- /side-trigger -->
+
+  <!-- ── Main ── -->
+  <main class="main">
+    <h1 class="welcome-title">Welcome to SpectralCrops</h1>
+    <p class="welcome-sub">Analyze and monitor your crop health using advanced spectral imaging techniques.</p>
+
+    <div class="cards">
+
+      <!-- Recent Analyses -->
+      <div class="card">
+        <h3>Recent Analyses</h3>
+        <div class="analysis-row"><span class="sid">Sample ID: 00123</span><span class="date">Apr 15, 2024</span></div>
+        <div class="analysis-row"><span class="sid">Sample ID: 00122</span><span class="date">Apr 14, 2024</span></div>
+        <div class="analysis-row"><span class="sid">Sample ID: 00121</span><span class="date">Apr 12, 2024</span></div>
+      </div>
+
+      <!-- Field Statistics -->
+      <div class="card">
+        <h3>Field Statistics</h3>
+        <div class="stats">
+          <div class="stat blue">
+            <span class="label">NDVI</span>
+            <span class="value">0,76</span>
+          </div>
+          <div class="stat green">
+            <span class="label">Soil Moisture</span>
+            <span class="value">32<small> %</small></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent Analyses (2) -->
+      <div class="card">
+        <h3>Recent Analyses</h3>
+        <div class="analysis-row"><span class="sid">Sample ID: 00120</span><span class="date">Apr 11, 2024</span></div>
+        <div class="analysis-row"><span class="sid">Sample ID: 00119</span><span class="date">Apr 09, 2024</span></div>
+      </div>
+
+      <!-- NDVI Over Time -->
+      <div class="card">
+        <h3>NDVI Over Time</h3>
+        <svg class="chart-svg" viewBox="0 0 500 230" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <linearGradient id="ndviFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"  stop-color="#2f66e0" stop-opacity="0.18"/>
+              <stop offset="100%" stop-color="#2f66e0" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+
+          <!-- gridlines + eixo Y -->
+          <g>
+            <line class="grid" x1="52" y1="30"  x2="486" y2="30"/>
+            <line class="grid" x1="52" y1="80"  x2="486" y2="80"/>
+            <line class="grid" x1="52" y1="130" x2="486" y2="130"/>
+            <line class="grid" x1="52" y1="180" x2="486" y2="180"/>
+            <text class="axis" x="16" y="34">0.9</text>
+            <text class="axis" x="16" y="84">0.7</text>
+            <text class="axis" x="16" y="134">0.5</text>
+            <text class="axis" x="16" y="184">0.4</text>
+          </g>
+
+          <!-- area + linha NDVI -->
+          <path class="area" d="M52 165
+            C 95 160, 110 120, 145 118
+            S 200 95, 235 108
+            S 300 60, 340 72
+            S 405 55, 486 58
+            L 486 180 L 52 180 Z"/>
+          <path class="line" d="M52 165
+            C 95 160, 110 120, 145 118
+            S 200 95, 235 108
+            S 300 60, 340 72
+            S 405 55, 486 58"/>
+
+          <!-- eixo X -->
+          <g>
+            <text class="axis" x="60"  y="212">Jun</text>
+            <text class="axis" x="132" y="212">Sep</text>
+            <text class="axis" x="204" y="212">Oct</text>
+            <text class="axis" x="272" y="212">Nov</text>
+            <text class="axis" x="344" y="212">Dez</text>
+            <text class="axis" x="452" y="212">Apr</text>
+          </g>
+        </svg>
+      </div>
+
+    </div>
+  </main>
+
 </body>
 </html>

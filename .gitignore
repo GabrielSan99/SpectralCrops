@@ -1,3 +1,7 @@
 venv/
 spectral_project/db.sqlite3
 **/frames_*/
+__pycache__/
+*.pyc
+spectral_project/captures_test/
+spectral_project/media/

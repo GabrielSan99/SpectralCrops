@@ -1,0 +1,525 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/png" href="{% static 'img/SpectralCrops-figure.png' %}">
+  <title>Parametrização — SpectralCrops</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f4f6f8; --panel: #ffffff; --panel2: #f7f9fb; --line: #e6e9ee;
+      --ink: #1f2937; --muted: #6b7280; --muted2: #9aa2ad;
+      --blue: #2f66e0; --blue-soft: #eaf0fd; --green: #2f9e5f;
+    }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--ink); display: flex; min-height: 100vh;
+    }
+
+    /* Sidebar oculta, revelada no hover do puxador (canto esquerdo) */
+    .side-trigger { position: fixed; left: 0; top: 0; height: 100vh; z-index: 50; }
+    .side-handle {
+      position: absolute; left: 0; top: 16px; width: 40px; height: 48px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--panel); border: 1px solid var(--line); border-left: none;
+      border-radius: 0 12px 12px 0; color: var(--muted); cursor: pointer;
+      box-shadow: 2px 0 10px rgba(16,24,40,0.08); transition: opacity .2s;
+    }
+    .side-handle svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; }
+    .side-trigger:hover .side-handle, .sidebar:focus-within ~ .side-handle { opacity: 0; }
+
+    .sidebar {
+      position: absolute; left: 0; top: 0; height: 100vh;
+      width: 250px; background: var(--panel); border-right: 1px solid var(--line);
+      padding: 1.6rem 1.1rem; display: flex; flex-direction: column; gap: 2rem;
+      transform: translateX(-100%); transition: transform .28s ease;
+      box-shadow: 6px 0 24px rgba(16,24,40,0.14);
+    }
+    .side-trigger:hover .sidebar, .sidebar:focus-within { transform: translateX(0); }
+    .logo { padding: 0.4rem 0.6rem; }
+    .logo img { width: 100%; max-width: 190px; height: auto; }
+    nav { display: flex; flex-direction: column; gap: 0.35rem; }
+    nav a {
+      display: flex; align-items: center; gap: 0.85rem; padding: 0.75rem 1rem;
+      border-radius: 10px; color: var(--muted); text-decoration: none;
+      font-size: 0.95rem; font-weight: 500; transition: background .15s, color .15s;
+    }
+    nav a svg { width: 20px; height: 20px; stroke: currentColor; fill: none;
+                stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+    nav a:hover { background: #f1f3f7; color: var(--ink); }
+    nav a.active { background: var(--blue); color: #fff; }
+
+    /* Main */
+    .main { flex: 1; padding: 2.2rem 2.6rem 4rem 3.4rem; overflow-y: auto; }
+    .page-head { display: flex; align-items: center; justify-content: space-between;
+                 gap: 1rem; margin-bottom: 1.8rem; flex-wrap: wrap;
+                 max-width: 1200px; margin-inline: auto; }
+    h1 { font-size: 1.7rem; font-weight: 700; letter-spacing: -0.01em; }
+    .sub { color: var(--muted); font-size: 0.95rem; margin-top: 0.25rem; }
+
+    .btn {
+      border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+      border-radius: 9px; padding: 8px 14px; font-size: 0.85rem; font-weight: 500;
+      cursor: pointer; transition: background .15s, border-color .15s, transform .1s, opacity .15s;
+    }
+    .btn:not(:disabled):hover { background: #f1f3f7; border-color: var(--blue); }
+    .btn:not(:disabled):active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }   /* desbotado quando indisponivel */
+    .btn-primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+    .btn-primary:not(:disabled):hover { background: #2557c4; }
+
+    .main > .card { margin-bottom: 1.4rem; }
+    .page-body { display: flex; flex-direction: column; gap: 1.4rem;
+                 max-width: 1200px; margin-inline: auto; }
+    .row3 { display: grid; gap: 1.4rem; grid-template-columns: 1fr 1fr 1fr; align-items: start; }
+    .placeholder-box { min-height: 160px; display: flex; align-items: center; justify-content: center;
+                       color: var(--muted2); font-size: 0.85rem; text-align: center;
+                       border: 1px dashed var(--line); border-radius: 10px; padding: 1rem; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+            padding: 1.3rem 1.4rem; box-shadow: 0 1px 2px rgba(16,24,40,0.04); }
+    .card.wide { grid-column: 1 / -1; }
+    .card h2 { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.1em;
+               text-transform: uppercase; color: var(--muted2); margin-bottom: 1.1rem; }
+    .card-div { border: none; border-top: 1px solid var(--line); margin: 1.3rem 0; }
+
+    /* Motor */
+    .motor-line { display: flex; align-items: center; gap: 1.3rem; flex-wrap: wrap;
+                  margin-bottom: 1.2rem; }
+    .pos-readout { display: flex; flex-direction: column; gap: 2px; }
+    .pos-steps { font-size: 2rem; font-weight: 700; line-height: 1;
+                 font-variant-numeric: tabular-nums; }
+    .pos-steps small { font-size: 0.9rem; color: var(--muted); font-weight: 500; }
+    .pos-deg { font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .jog { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .jog label { font-size: 0.82rem; color: var(--muted); }
+    .jog input { width: 72px; padding: 7px 9px; border: 1px solid var(--line);
+                 border-radius: 8px; font-size: 0.9rem; font-family: inherit; }
+    .limit-pill { display: inline-flex; align-items: center; gap: 7px; font-size: 0.8rem;
+                  padding: 5px 11px; border-radius: 999px; background: var(--panel2);
+                  color: var(--muted); border: 1px solid var(--line); }
+    .limit-dot { width: 9px; height: 9px; border-radius: 50%; background: #cbd2da; }
+    .limit-pill.on { color: #b42318; background: #fef3f2; border-color: #fecdc9; }
+    .limit-pill.on .limit-dot { background: #f04438; box-shadow: 0 0 6px #f0443888; }
+
+    /* Camera */
+    .stream-wrap { background: #0b0d13; border: 1px solid var(--line); border-radius: 10px;
+                   height: 360px; display: flex; align-items: center; justify-content: center;
+                   overflow: hidden; margin-bottom: 0.9rem; }
+    .stream-wrap img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .stream-wrap .placeholder { color: #6b7280; font-size: 0.85rem; }
+
+    .cam-btns { display: flex; gap: 8px; align-items: stretch; }
+    .cam-btns > .btn, .cam-btns > .ref-stack { flex: 1 1 0; min-width: 0; }
+    .cam-btns .btn { font-size: 0.72rem; padding: 8px 6px; white-space: normal;
+                     line-height: 1.2; text-align: center; }
+    .ref-stack { display: flex; flex-direction: column; gap: 6px; }
+    .ref-stack .btn { width: 100%; }
+
+    .cal-imgwrap { background: #0b0d13; border: 1px solid var(--line); border-radius: 10px;
+                   min-height: 160px; display: flex; align-items: center; justify-content: center;
+                   overflow: hidden; margin-bottom: 0.7rem; }
+    .cal-imgwrap img { max-width: 100%; max-height: 320px; object-fit: contain; display: block; }
+    .cal-imgwrap .placeholder { color: #6b7280; font-size: 0.85rem; }
+    .cal-value { font-size: 0.86rem; font-weight: 700; color: var(--green);
+                 font-variant-numeric: tabular-nums; }
+
+    .btn-pos { border-color: var(--blue); color: var(--blue); }
+    .btn-pos:hover { background: var(--blue-soft); }
+    .filters td:last-child { display: flex; gap: 6px; }
+
+    /* Filtros */
+    table.filters { width: 100%; border-collapse: collapse; }
+    table.filters th { text-align: left; font-size: 0.72rem; text-transform: uppercase;
+                       letter-spacing: 0.06em; color: var(--muted2); font-weight: 600;
+                       padding: 0 8px 8px; }
+    table.filters td { padding: 6px 8px; border-top: 1px solid var(--line); }
+    .fidx { width: 26px; height: 26px; border-radius: 7px; background: var(--blue-soft);
+            color: var(--blue); font-weight: 700; font-size: 0.85rem; display: grid;
+            place-items: center; }
+    .filters input[type=text] { width: 100%; padding: 8px 10px; border: 1px solid var(--line);
+            border-radius: 8px; font-size: 0.9rem; font-family: inherit; color: var(--ink); }
+    .filters input[type=number] { width: 92px; padding: 8px 10px; border: 1px solid var(--line);
+            border-radius: 8px; font-size: 0.9rem; font-family: inherit;
+            font-variant-numeric: tabular-nums; }
+    .filters .btn { padding: 6px 11px; font-size: 0.78rem; }
+
+    /* Iluminacao */
+    .band-row { display: grid; grid-template-columns: 13px 50px 40px 1fr 34px 12px auto;
+                align-items: center; gap: 8px; padding: 7px 0; }
+    .band-dot { width: 14px; height: 14px; border-radius: 50%; background: #d3d9e0;
+                transition: background .2s, box-shadow .2s; }
+    .band-row.on .band-dot { background: var(--c); box-shadow: 0 0 8px var(--c); }
+    .band-name { font-size: 0.86rem; font-variant-numeric: tabular-nums; }
+    .band-toggle { padding: 4px 0; font-size: 0.68rem; text-align: center; cursor: pointer;
+                   border: 1px solid var(--line); border-radius: 7px; background: var(--panel);
+                   color: var(--muted); }
+    .band-row.on .band-toggle { border-color: var(--c); color: var(--ink); font-weight: 600; }
+    .band-slider { width: 100%; accent-color: var(--blue); }
+    .band-pct { font-size: 0.78rem; color: var(--muted); text-align: right;
+                font-variant-numeric: tabular-nums; }
+    .band-timer { font-size: 0.75rem; font-weight: 700; color: #eab308; text-align: center;
+                  font-variant-numeric: tabular-nums; }
+    .band-save { padding: 4px 10px; font-size: 0.7rem; }
+    .illum-foot { margin-top: 1rem; display: flex; align-items: center;
+                  justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .illum-note { font-size: 0.78rem; color: var(--muted2); }
+
+    /* Toast */
+    #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+             background: var(--ink); color: #fff; padding: 11px 20px; border-radius: 10px;
+             font-size: 0.9rem; opacity: 0; pointer-events: none; transition: all .25s; }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    @media (max-width: 900px) {
+      .main { padding: 1.5rem 1.1rem 4rem 3.4rem; }
+      .row3 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Sidebar oculta: aparece ao passar o mouse no puxador da esquerda -->
+  <div class="side-trigger">
+    <div class="side-handle" aria-label="Abrir menu">
+      <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </div>
+  <aside class="sidebar">
+    <div class="logo"><img src="{% static 'img/SpectralCrops-removed_background.png' %}" alt="SpectralCrops"></div>
+    <nav>
+      <a href="{% url 'index' %}">
+        <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>Home
+      </a>
+      <a href="{% url 'tests' %}">
+        <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Data Acquisition
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l3-4 3 3 4-6"/></svg>Analysis
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9zM9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>Machine Learning
+      </a>
+      <a class="active" href="{% url 'parameterization' %}">
+        <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="2" fill="currentColor" stroke="none"/></svg>Parameterization
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 0 1-4 0v-.1A1.6 1.6 0 0 0 6.6 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 4 13.6H3.9a2 2 0 0 1 0-4H4a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10.5 4H10.6a2 2 0 0 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8Z"/></svg>Settings
+      </a>
+    </nav>
+  </aside>
+  </div><!-- /side-trigger -->
+
+  <!-- Main -->
+  <main class="main">
+    <div class="page-head">
+      <div>
+        <h1>Parametrização</h1>
+        <p class="sub">Referencie as 6 posições de filtro (em passos do fim de curso) e a intensidade de iluminação.</p>
+      </div>
+    </div>
+
+    <div class="page-body">
+
+      <!-- LINHA 1: Filtros (com controles do motor na linha) -->
+      <div class="card">
+        <h2>Filtros (6 posições)</h2>
+        <div class="motor-line">
+          <div class="pos-readout">
+            <span class="pos-steps"><span id="pos-steps">0</span> <small>passos</small></span>
+            <span class="pos-deg"><span id="pos-deg">0.0</span>°</span>
+          </div>
+          <div class="jog">
+            <label>passos/clique</label>
+            <input type="number" id="jog-steps" value="5" min="1" max="2000">
+            <button class="btn" onclick="jog('ccw')">◀ Anti-horário</button>
+            <button class="btn" onclick="jog('cw')">Horário ▶</button>
+          </div>
+          <span class="limit-pill" id="limit-pill"><span class="limit-dot"></span><span id="limit-txt">Fim de curso livre</span></span>
+        </div>
+
+        <table class="filters">
+          <thead><tr><th>#</th><th>Nome do filtro</th><th>Passos</th><th></th></tr></thead>
+          <tbody>
+            {% for f in filters %}
+            <tr data-index="{{ f.index }}">
+              <td><div class="fidx">{{ f.index }}</div></td>
+              <td><input type="text" class="f-name" value="{{ f.name }}" placeholder="Nenhum filtro relacionado"></td>
+              <td><input type="number" class="f-steps" value="{{ f.steps }}"></td>
+              <td>
+                <button class="btn btn-pos" onclick="posicionar(this)">Posicionar</button>
+                <button class="btn btn-primary" onclick="salvarFiltro(this)">Salvar</button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- LINHA 2: Calibração espacial | Stream | Calibração reflectância -->
+      <div class="row3">
+
+        <!-- Calibração espacial -->
+        <div class="card">
+          <h2>Calibração espacial</h2>
+          <div class="cal-imgwrap">
+            <img id="cal-img" alt="Imagem de calibração"
+                 {% if cal and cal.image %}src="{{ cal.image.url }}"{% endif %}
+                 style="{% if not cal or not cal.image %}display:none{% endif %}">
+            <span class="placeholder" id="cal-ph"
+                  style="{% if cal and cal.image %}display:none{% endif %}">sem calibração ainda</span>
+          </div>
+          <div id="geo-result" class="cal-value">{% if cal %}{{ cal.px_per_mm|floatformat:3 }} px/mm · {{ cal.mm_per_pixel|floatformat:5 }} mm/px · QR {{ cal.qr_mm|floatformat:0 }}mm = {{ cal.qr_px|floatformat:0 }}px{% endif %}</div>
+        </div>
+
+        <!-- Câmera / Stream -->
+        <div class="card">
+          <h2>Câmera</h2>
+          <div class="stream-wrap">
+            <img id="stream" alt="Camera Stream" data-src="{% url 'video_feed' %}">
+            <span class="placeholder" id="stream-ph">stream desligado</span>
+          </div>
+          <div class="cam-btns">
+            <button class="btn btn-primary needs-stream" id="geoBtn" onclick="geoFrame()" disabled>Calibração Espacial</button>
+            <button class="btn" id="streamBtn" onclick="toggleStream()">Start Stream</button>
+            <div class="ref-stack">
+              <button class="btn needs-stream" onclick="refCal(100)" disabled>Calibração Reflectância 100</button>
+              <button class="btn needs-stream" onclick="refCal(0)" disabled>Calibração Reflectância 0</button>
+            </div>
+          </div>
+          <p class="illum-note" style="margin-top:0.7rem;">Ligue o stream: Espacial usa um QR de tamanho conhecido; Reflectância 100/0 são as referências branca/escura.</p>
+        </div>
+
+        <!-- Calibração de reflectância (a implementar) -->
+        <div class="card">
+          <h2>Calibração de reflectância</h2>
+          <div class="placeholder-box">Em breve — calibração de reflectância</div>
+        </div>
+
+      </div><!-- /row3 -->
+
+      <!-- LINHA 3: Iluminação (largura cheia) -->
+      <div class="card">
+        <h2>Iluminação (intensidade por banda)</h2>
+        {% for b in bands %}
+        <div class="band-row" data-nm="{{ b.nm }}" style="--c: {{ b.color }}">
+          <span class="band-dot"></span>
+          <span class="band-name">{{ b.nm }} nm</span>
+          <button class="band-toggle" onclick="toggleBand('{{ b.nm }}')">OFF</button>
+          <input type="range" class="band-slider" min="0" max="255" value="{{ b.intensity }}"
+                 oninput="onBand('{{ b.nm }}', this.value)">
+          <span class="band-pct">0%</span>
+          <span class="band-timer"></span>
+          <button class="btn btn-primary band-save" onclick="salvarBanda('{{ b.nm }}')">Salvar</button>
+        </div>
+        {% endfor %}
+        <div class="illum-foot">
+          <span class="illum-note">O toggle acende a banda; um contador de 5s apaga sozinho. Salve cada banda no seu botão.</span>
+          <button class="btn" onclick="apagarTodos()">Apagar todos</button>
+        </div>
+      </div>
+
+    </div><!-- /page-body -->
+  </main>
+
+  <div id="toast"></div>
+
+<script>
+const CSRF = '{{ csrf_token }}';
+const URLS = {
+  status:   "{% url 'tests_status' %}",
+  motor:    "{% url 'param_motor' %}",
+  reset:    "{% url 'tests_motor_reset' %}",
+  led:      "{% url 'tests_led' %}",
+  ledsOff:  "{% url 'tests_leds_off' %}",
+  posicionar: "{% url 'param_posicionar' %}",
+  geoFrame: "{% url 'param_geo_frame' %}",
+  save:     "{% url 'param_save' %}",
+};
+function api(url, data) {
+  return fetch(url, { method: 'POST', headers: { 'X-CSRFToken': CSRF },
+    body: new URLSearchParams(data || {}) }).then(r => r.json());
+}
+function apiJSON(url, obj) {
+  return fetch(url, { method: 'POST',
+    headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+    body: JSON.stringify(obj) }).then(r => r.json());
+}
+function getJSON(url) { return fetch(url).then(r => r.json()); }
+
+let curSteps = 0;
+
+/* ── Motor ── */
+function updateMotor(m) {
+  curSteps = m.steps;
+  document.getElementById('pos-steps').textContent = m.steps;
+  document.getElementById('pos-deg').textContent = parseFloat(m.pos).toFixed(1);
+  const pill = document.getElementById('limit-pill');
+  pill.classList.toggle('on', m.limit);
+  document.getElementById('limit-txt').textContent = m.limit ? 'Fim de curso acionado!' : 'Fim de curso livre';
+}
+function jog(dir) {
+  const steps = document.getElementById('jog-steps').value || 5;
+  api(URLS.motor, { dir, steps }).then(updateMotor);
+}
+function salvarFiltro(btn) {
+  const tr = btn.closest('tr');
+  tr.querySelector('.f-steps').value = curSteps;   // grava a posição atual do motor
+  const f = { index: tr.dataset.index, name: tr.querySelector('.f-name').value, steps: curSteps };
+  apiJSON(URLS.save, { filters: [f] })
+    .then(() => toast('Filtro ' + f.index + ' salvo ✓'))
+    .catch(() => toast('Erro ao salvar filtro'));
+}
+function posicionar(btn) {
+  const tr = btn.closest('tr');
+  const steps = tr.querySelector('.f-steps').value || 0;
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Posicionando…';
+  api(URLS.posicionar, { steps }).then(d => {
+    if (d.pos !== undefined) updateMotor(d);
+    toast(d.ok ? 'Posicionado no filtro ✓' : (d.error || 'Falha no posicionamento'));
+  }).catch(() => toast('Erro ao posicionar'))
+    .finally(() => { btn.disabled = false; btn.textContent = orig; });
+}
+
+/* ── Câmera ── */
+function isStreaming() { return !!document.getElementById('stream').getAttribute('src'); }
+function setNeedsStream(on) {   // habilita/desabilita os botoes que dependem do stream
+  document.querySelectorAll('.needs-stream').forEach(b => b.disabled = !on);
+}
+function streamOn() {
+  const img = document.getElementById('stream');
+  img.src = img.dataset.src + '?t=' + Date.now(); img.style.display = 'block';
+  document.getElementById('stream-ph').style.display = 'none';
+  document.getElementById('streamBtn').textContent = 'Stop Stream';
+  setNeedsStream(true);
+}
+function streamOff() {
+  const img = document.getElementById('stream');
+  img.removeAttribute('src'); img.style.display = 'none';
+  document.getElementById('stream-ph').style.display = 'block';
+  document.getElementById('streamBtn').textContent = 'Start Stream';
+  setNeedsStream(false);
+}
+function toggleStream() { isStreaming() ? streamOff() : streamOn(); }
+function refCal(level) {   // placeholder ate implementarmos a calibracao de reflectancia
+  toast('Calibração de reflectância ' + level + ' — a implementar');
+}
+function geoFrame() {
+  const btn = document.getElementById('geoBtn');
+  const el = document.getElementById('geo-result');
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Capturando…';
+  api(URLS.geoFrame)
+    .then(d => {
+      if (d.ok) {
+        el.style.color = d.tilted ? '#b45309' : 'var(--green)';
+        el.textContent = `${d.px_per_mm} px/mm · ${d.mm_per_pixel} mm/px · QR ${d.qr_mm}mm = ${d.qr_px}px · lados ±${d.deviation_pct}%`
+          + (d.tilted ? '  ⚠ QR inclinado, reposicione' : '');
+        if (d.image_url) {
+          const img = document.getElementById('cal-img');
+          img.src = d.image_url + '?t=' + Date.now();
+          img.style.display = 'block';
+          document.getElementById('cal-ph').style.display = 'none';
+        }
+        toast('Calibração salva ✓');
+      } else {
+        el.style.color = '#b42318';
+        el.textContent = d.error || 'Falha na captura';
+        toast('Falha na calibração');
+      }
+    })
+    .catch(() => { el.style.color = '#b42318'; el.textContent = 'Erro na captura'; toast('Erro'); })
+    .finally(() => { btn.disabled = false; btn.textContent = orig; });
+}
+
+/* ── Iluminação: toggle ON/OFF + contador (auto-off) + preview ── */
+const COUNTDOWN_START = 5;   // segundos ate apagar sozinho (nao zera o slider)
+const bandTimers = {};       // nm -> id do setInterval
+const bandPreview = {};      // nm -> LED ligado no preview?
+let bandSlide = {};          // nm -> debounce do slider
+
+function bandRow(nm) { return document.querySelector(`.band-row[data-nm="${nm}"]`); }
+function bandIntensity(nm) { return Number(bandRow(nm).querySelector('.band-slider').value); }
+function setBandValue(nm, dc) {
+  bandRow(nm).querySelector('.band-slider').value = dc;
+  bandRow(nm).querySelector('.band-pct').textContent = Math.round(dc / 255 * 100) + '%';
+}
+
+function clearBandCountdown(nm) {
+  if (bandTimers[nm]) { clearInterval(bandTimers[nm]); delete bandTimers[nm]; }
+  bandRow(nm).querySelector('.band-timer').textContent = '';
+}
+function startBandCountdown(nm) {
+  clearBandCountdown(nm);
+  let rem = COUNTDOWN_START;
+  const el = bandRow(nm).querySelector('.band-timer');
+  el.textContent = rem;
+  bandTimers[nm] = setInterval(() => {
+    rem -= 1;
+    if (rem <= 0) bandOff(nm);          // apaga o LED, mantendo o valor do slider
+    else el.textContent = rem;
+  }, 1000);
+}
+function setBandOn(nm, on) {
+  const row = bandRow(nm);
+  row.classList.toggle('on', on);
+  row.querySelector('.band-toggle').textContent = on ? 'ON' : 'OFF';
+}
+function bandOn(nm) {
+  let dc = bandIntensity(nm);
+  if (dc <= 0) { dc = 255; setBandValue(nm, dc); }  // estava em 0 -> liga no maximo
+  bandPreview[nm] = true; setBandOn(nm, true);
+  api(URLS.led, { band: nm, brightness: dc });
+  startBandCountdown(nm);
+}
+function bandOff(nm) {
+  bandPreview[nm] = false; setBandOn(nm, false);
+  clearBandCountdown(nm);
+  api(URLS.led, { band: nm, brightness: 0 });
+}
+function toggleBand(nm) { bandPreview[nm] ? bandOff(nm) : bandOn(nm); }
+
+function onBand(nm, val) {   // mover o slider: ajusta intensidade e mostra ao vivo
+  val = Number(val);
+  const on = val > 0;
+  bandRow(nm).querySelector('.band-pct').textContent = Math.round(val / 255 * 100) + '%';
+  bandPreview[nm] = on; setBandOn(nm, on);
+  clearTimeout(bandSlide[nm]);
+  bandSlide[nm] = setTimeout(() => {
+    api(URLS.led, { band: nm, brightness: val });
+    if (on) startBandCountdown(nm); else clearBandCountdown(nm);
+  }, 60);
+}
+function apagarTodos() {
+  api(URLS.ledsOff);
+  document.querySelectorAll('.band-row').forEach(r => {
+    const nm = r.dataset.nm; bandPreview[nm] = false; setBandOn(nm, false); clearBandCountdown(nm);
+  });
+}
+
+/* ── Salvar ── */
+function salvarBanda(nm) {
+  const intensity = bandIntensity(nm);
+  apiJSON(URLS.save, { bands: [{ nm, intensity }] })
+    .then(() => toast(nm + 'nm salvo ✓'))
+    .catch(() => toast('Erro ao salvar banda'));
+}
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+/* ── init: reflete % inicial dos sliders e faz polling do motor ── */
+document.querySelectorAll('.band-row').forEach(r => {
+  const v = r.querySelector('.band-slider').value;
+  r.querySelector('.band-pct').textContent = Math.round(v / 255 * 100) + '%';
+});
+function poll() {
+  getJSON(URLS.status).then(d => updateMotor(d.motor)).catch(() => {}).finally(() => setTimeout(poll, 600));
+}
+streamOff();  // stream comeca desligado
+poll();
+</script>
+</body>
+</html>
