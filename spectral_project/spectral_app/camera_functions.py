@@ -18,6 +18,15 @@ class ArducamCamera:
     HEIGHT = 800
     WARMUP_FRAMES = 5  # descarta os primeiros frames (auto-exposicao estabilizar)
 
+    # Preview do MJPEG (Start Stream): so serve pra enquadrar/posicionar, entao
+    # sai bem menor que a captura real (que continua em WIDTH x HEIGHT cheios).
+    # Full-res a qualidade alta gerava ~40KB/frame (~13Mbps a ~40fps) -- em
+    # Wi-Fi isso satura e o stream vai acumulando atraso. Meia-resolucao cai
+    # pra ~9KB/frame (~3Mbps), bem mais folgado.
+    STREAM_WIDTH = 640
+    STREAM_HEIGHT = 400
+    STREAM_JPEG_QUALITY = 80
+
     # Ganho da camera. 0 = padrao de fabrica (sem ganho extra). Se as fotos
     # ficarem escuras demais no ambiente fechado da caixa, aumente aos poucos
     # (ex.: 20, 40...). Nao mude o modo de auto_exposure: trocar trava o
@@ -69,6 +78,7 @@ class ArducamCamera:
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*self.FOURCC))
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.HEIGHT)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # sempre o frame mais recente, sem fila acumulando atraso
         if self.GAIN:  # 0 = nao mexe, deixa no padrao de fabrica do driver
             cap.set(cv2.CAP_PROP_GAIN, self.GAIN)
         for _ in range(self.WARMUP_FRAMES):
@@ -169,7 +179,10 @@ class ArducamCamera:
                 if stop_event is not None and stop_event.is_set():
                     break
                 if frame is not None:
-                    ret, jpeg = cv2.imencode('.jpg', frame)
+                    small = cv2.resize(frame, (self.STREAM_WIDTH, self.STREAM_HEIGHT),
+                                        interpolation=cv2.INTER_AREA)
+                    ret, jpeg = cv2.imencode('.jpg', small,
+                                              [cv2.IMWRITE_JPEG_QUALITY, self.STREAM_JPEG_QUALITY])
                     if ret:
                         yield (b'--frame\r\n'
                                b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
