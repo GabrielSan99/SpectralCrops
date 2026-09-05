@@ -655,10 +655,10 @@ def param_reflectance_capture(request):
     try:
         for nm, pin in LED_BANDS.items():
             _led_set(pi, pin, CAPTURE_DC)
-            time.sleep(0.6)  # da tempo do LED subir e da exposicao estabilizar
+            time.sleep(3)  # da tempo do LED subir e da exposicao estabilizar
             frame = camera.grab()
             _led_set(pi, pin, 0)
-            time.sleep(0.3)  # espera o LED apagar antes da proxima banda
+            time.sleep(1.5)  # espera o LED apagar antes da proxima banda
             if frame is None:
                 return JsonResponse({"ok": False,
                     "error": f"Sem imagem da câmera (banda {nm}nm)."}, status=409)
@@ -732,7 +732,8 @@ def param_reflectance_compute(request):
             cal.image.save(f"refl_{now}.png", ContentFile(buf.tobytes()), save=False)
     cal.save()
 
-    with _reflectance_lock:
-        _reflectance_capture.clear()
+    # Mantem a sessao/frames vivos: o usuario pode arrastar de novo pra ajustar
+    # a bbox e recalcular quantas vezes quiser sobre as MESMAS fotos. So e
+    # substituida quando uma nova captura acontecer (param_reflectance_capture).
 
     return JsonResponse({"ok": True, "means": means})

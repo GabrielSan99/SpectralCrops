@@ -131,11 +131,18 @@
                     position: relative; overflow: hidden; min-height: 160px;
                     display: flex; align-items: center; justify-content: center;
                     margin-bottom: 0.7rem; }
-    .refl-imgwrap img { display: block; width: 100%; height: auto; cursor: crosshair; }
+    .refl-imgwrap img { display: block; width: 100%; height: auto; cursor: crosshair; touch-action: none; }
     .refl-imgwrap .placeholder { color: #6b7280; font-size: 0.85rem; padding: 0 1rem; text-align: center; }
     .refl-box { position: absolute; border: 2px solid #22c55e; background: rgba(34,197,94,0.15);
                 pointer-events: none; display: none; }
     .refl-means { font-size: 0.78rem; color: var(--muted2); line-height: 1.6; }
+    .refl-chart { margin-bottom: 0.6rem; display: none; }
+    .refl-bar { cursor: pointer; transition: opacity .1s; }
+    .refl-bar:hover, .refl-bar:focus { opacity: 0.75; outline: none; }
+    .refl-tip { position: fixed; background: var(--ink); color: #fff; padding: 4px 8px;
+                border-radius: 6px; font-size: 0.75rem; white-space: nowrap; pointer-events: none;
+                opacity: 0; transition: opacity .1s; z-index: 60; font-variant-numeric: tabular-nums; }
+    .refl-tip.show { opacity: 1; }
 
     .btn-pos { border-color: var(--blue); color: var(--blue); }
     .btn-pos:hover { background: var(--blue-soft); }
@@ -312,7 +319,10 @@
             <span class="placeholder" id="refl-ph"
                   style="{% if refl and refl.image %}display:none{% endif %}">use "Calibração Reflectância 100" com o stream ligado, depois arraste um retângulo sobre a referência branca</span>
           </div>
+          <div id="refl-chart" class="refl-chart"></div>
           <div id="refl-result" class="refl-means">{% if refl %}{% for nm, v in refl.means.items %}{{ nm }}nm: {{ v }}{% if not forloop.last %} · {% endif %}{% endfor %}{% else %}Depois da captura, arraste um retângulo sobre a região branca de referência.{% endif %}</div>
+          {% if refl %}{{ refl.bbox_x|json_script:"refl-bbox-x" }}{{ refl.bbox_y|json_script:"refl-bbox-y" }}{{ refl.bbox_w|json_script:"refl-bbox-w" }}{{ refl.bbox_h|json_script:"refl-bbox-h" }}{{ refl.means|json_script:"refl-means-data" }}{% endif %}
+          <div id="refl-tip" class="refl-tip"></div>
         </div>
 
       </div><!-- /row3 -->
@@ -442,7 +452,111 @@ async function streamOff() {
 async function toggleStream() { if (!streamStopping) { isStreaming() ? await streamOff() : streamOn(); } }
 /* ── Calibração de reflectância 100% ── */
 let reflSession = null;
-let reflImgNatural = { w: 0, h: 0 };
+// Bbox (em pixels da imagem original) da ultima selecao -- fica ativa entre
+// capturas novas (a camera e fixa, a mesma regiao continua valendo) e e
+// restaurada do banco ao carregar a pagina.
+let reflBox = null;
+{% if refl %}
+reflBox = { x: JSON.parse(document.getElementById('refl-bbox-x').textContent),
+            y: JSON.parse(document.getElementById('refl-bbox-y').textContent),
+            w: JSON.parse(document.getElementById('refl-bbox-w').textContent),
+            h: JSON.parse(document.getElementById('refl-bbox-h').textContent) };
+{% endif %}
+
+// cor de cada banda: reaproveita a mesma cor usada nos sliders de iluminacao
+// (custom property --c de .band-row), pra nao duplicar o mapeamento em outro lugar.
+const BAND_META = Array.from(document.querySelectorAll('.band-row')).map(row => ({
+  nm: row.dataset.nm,
+  color: (row.style.getPropertyValue('--c') || '#888').trim(),
+}));
+
+function whenImgReady(img, cb) {
+  if (img.complete && img.naturalWidth) cb();
+  else img.addEventListener('load', cb, { once: true });
+}
+
+function drawReflBox() {
+  const img = document.getElementById('refl-img');
+  const box = document.getElementById('refl-box');
+  if (!reflBox || !img.naturalWidth || img.style.display === 'none') { box.style.display = 'none'; return; }
+  const scale = img.getBoundingClientRect().width / img.naturalWidth;
+  box.style.left = (reflBox.x * scale) + 'px';
+  box.style.top = (reflBox.y * scale) + 'px';
+  box.style.width = (reflBox.w * scale) + 'px';
+  box.style.height = (reflBox.h * scale) + 'px';
+  box.style.display = 'block';
+}
+window.addEventListener('resize', drawReflBox);
+
+function reflBarPath(x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h));
+  return `M${x},${y + h} L${x},${y + r} Q${x},${y} ${x + r},${y} `
+       + `L${x + w - r},${y} Q${x + w},${y} ${x + w},${y + r} L${x + w},${y + h} Z`;
+}
+
+function renderReflChart(means) {
+  const el = document.getElementById('refl-chart');
+  const bands = BAND_META.filter(b => means[b.nm] !== undefined);
+  if (!bands.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+
+  const W = 560, H = 170, padL = 32, padR = 8, padT = 10, padB = 20;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const yMax = 255;
+  const yToPx = v => padT + plotH - (Math.min(v, yMax) / yMax) * plotH;
+  const slot = plotW / bands.length;
+  const barW = Math.min(24, slot * 0.55);
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Média de intensidade por banda (0-255)">`;
+  [0, 50, 100, 150, 200, 250].forEach(t => {
+    const y = yToPx(t);
+    svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--line)" stroke-width="1"/>`;
+    svg += `<text x="${padL - 5}" y="${y + 3}" text-anchor="end" font-size="9" fill="var(--muted2)">${t}</text>`;
+  });
+  bands.forEach((b, i) => {
+    const v = means[b.nm];
+    const cx = padL + slot * i + slot / 2;
+    const yTop = yToPx(v);
+    const h = (padT + plotH) - yTop;
+    svg += `<path class="refl-bar" data-nm="${b.nm}" data-val="${v}" tabindex="0"
+             d="${reflBarPath(cx - barW / 2, yTop, barW, h, 4)}" fill="${b.color}"></path>`;
+    svg += `<text x="${cx}" y="${H - 6}" text-anchor="middle" font-size="9" fill="var(--muted)">${b.nm}</text>`;
+  });
+  svg += `</svg>`;
+  el.innerHTML = svg;
+  el.style.display = 'block';
+
+  const tip = document.getElementById('refl-tip');
+  el.querySelectorAll('.refl-bar').forEach(bar => {
+    const show = (clientX, clientY) => {
+      tip.textContent = `${bar.dataset.nm}nm: ${bar.dataset.val}`;
+      tip.style.left = (clientX + 12) + 'px';
+      tip.style.top = (clientY - 28) + 'px';
+      tip.classList.add('show');
+    };
+    const hide = () => tip.classList.remove('show');
+    bar.addEventListener('pointermove', (e) => show(e.clientX, e.clientY));
+    bar.addEventListener('pointerenter', (e) => show(e.clientX, e.clientY));
+    bar.addEventListener('pointerleave', hide);
+    bar.addEventListener('focus', () => {
+      const r = bar.getBoundingClientRect(); show(r.left + r.width / 2, r.top);
+    });
+    bar.addEventListener('blur', hide);
+  });
+}
+
+function applyReflBox(box) {
+  reflBox = box;
+  drawReflBox();
+  return apiJSON(URLS.reflCompute, { session: reflSession, x: box.x, y: box.y, w: box.w, h: box.h })
+    .then(d => {
+      if (!d.ok) { toast(d.error || 'Falha ao calcular'); return; }
+      renderReflChart(d.means);
+      document.getElementById('refl-result').textContent =
+        Object.entries(d.means).map(([nm, v]) => `${nm}nm: ${v}`).join(' · ');
+      toast('Calibração de reflectância 100% salva ✓');
+    })
+    .catch(err => toast('Erro ao calcular: ' + err.message));
+}
 
 async function refCal(level, btn) {
   if (level !== 100) { toast('Calibração de reflectância 0 — a implementar'); return; }
@@ -456,14 +570,23 @@ async function refCal(level, btn) {
     const d = await api(URLS.reflCapture);
     if (!d.ok) { toast(d.error || 'Falha na captura'); return; }
     reflSession = d.session;
-    reflImgNatural = { w: d.width, h: d.height };
     const img = document.getElementById('refl-img');
-    img.src = d.image_data;
     img.style.display = 'block';
     document.getElementById('refl-ph').style.display = 'none';
-    document.getElementById('refl-box').style.display = 'none';
-    document.getElementById('refl-result').textContent =
-      'Fotos tiradas — arraste um retângulo sobre a região branca de referência.';
+    // troca de src sempre dispara um 'load' novo (data URL distinta a cada captura);
+    // o listener precisa ser adicionado ANTES do src pra nao perder o evento.
+    img.addEventListener('load', () => {
+      if (reflBox) {
+        // mesma regiao da ultima selecao continua ativa -- reaplica direto nas fotos novas
+        document.getElementById('refl-result').textContent = 'Recalculando com a última seleção…';
+        applyReflBox(reflBox);
+      } else {
+        drawReflBox();
+        document.getElementById('refl-result').textContent =
+          'Fotos tiradas — arraste um retângulo sobre a região branca de referência.';
+      }
+    }, { once: true });
+    img.src = d.image_data;
     toast('Fotos capturadas ✓ (' + (d.folder || 'media/reflectance/') + ') — selecione a região 100%');
   } catch (e) {
     toast('Erro na captura');
@@ -474,51 +597,62 @@ async function refCal(level, btn) {
 }
 
 (function setupReflDrag() {
+  // Pointer Events (nao mouse-only): funciona igual com mouse, caneta e touch --
+  // importante pra bancada com touchscreen, onde toque+arraste em mouse events
+  // costuma virar so um "tap" (sem mousemove no meio) e a selecao nunca fecha.
   const wrap = document.getElementById('refl-wrap');
   const img = document.getElementById('refl-img');
   const box = document.getElementById('refl-box');
   let start = null;
+  let pointerId = null;
 
   function toCoords(evt) {
     const r = img.getBoundingClientRect();
     const dispX = Math.max(0, Math.min(r.width, evt.clientX - r.left));
     const dispY = Math.max(0, Math.min(r.height, evt.clientY - r.top));
-    const scale = r.width ? (reflImgNatural.w / r.width) : 1;
+    const scale = r.width ? (img.naturalWidth / r.width) : 1;
     return { dispX, dispY, x: dispX * scale, y: dispY * scale };
   }
 
-  wrap.addEventListener('mousedown', (evt) => {
-    if (!reflSession || img.style.display === 'none') return;
+  wrap.addEventListener('pointerdown', (evt) => {
+    if (img.style.display === 'none') return;
+    if (!reflSession) { toast('Tire as fotos primeiro ("Calibração Reflectância 100")'); return; }
+    pointerId = evt.pointerId;
+    wrap.setPointerCapture(pointerId);   // garante move/up mesmo se o ponteiro sair da imagem
     start = toCoords(evt);
     box.style.display = 'block';
     box.style.left = start.dispX + 'px'; box.style.top = start.dispY + 'px';
     box.style.width = '0px'; box.style.height = '0px';
+    evt.preventDefault();
   });
-  window.addEventListener('mousemove', (evt) => {
-    if (!start) return;
+  wrap.addEventListener('pointermove', (evt) => {
+    if (!start || evt.pointerId !== pointerId) return;
     const cur = toCoords(evt);
     box.style.left = Math.min(start.dispX, cur.dispX) + 'px';
     box.style.top = Math.min(start.dispY, cur.dispY) + 'px';
     box.style.width = Math.abs(cur.dispX - start.dispX) + 'px';
     box.style.height = Math.abs(cur.dispY - start.dispY) + 'px';
   });
-  window.addEventListener('mouseup', (evt) => {
-    if (!start) return;
+  wrap.addEventListener('pointerup', (evt) => {
+    if (!start || evt.pointerId !== pointerId) return;
     const cur = toCoords(evt);
     const x = Math.round(Math.min(start.x, cur.x)), y = Math.round(Math.min(start.y, cur.y));
     const w = Math.round(Math.abs(cur.x - start.x)), h = Math.round(Math.abs(cur.y - start.y));
     start = null;
-    if (w < 5 || h < 5) { box.style.display = 'none'; return; }
-    apiJSON(URLS.reflCompute, { session: reflSession, x, y, w, h })
-      .then(d => {
-        if (!d.ok) { toast(d.error || 'Falha ao calcular'); return; }
-        document.getElementById('refl-result').textContent =
-          Object.entries(d.means).map(([nm, v]) => `${nm}nm: ${v}`).join(' · ');
-        toast('Calibração de reflectância 100% salva ✓');
-      })
-      .catch(() => toast('Erro ao calcular'));
+    wrap.releasePointerCapture(pointerId);
+    if (w < 5 || h < 5) {
+      toast(`Seleção muito pequena (${w}x${h}px) — arraste uma área maior`);
+      drawReflBox();   // gesto invalido: mantem a bbox anterior
+      return;
+    }
+    applyReflBox({ x, y, w, h });
   });
 })();
+
+{% if refl %}
+whenImgReady(document.getElementById('refl-img'), drawReflBox);
+renderReflChart(JSON.parse(document.getElementById('refl-means-data').textContent));
+{% endif %}
 function geoFrame() {
   const btn = document.getElementById('geoBtn');
   const el = document.getElementById('geo-result');
