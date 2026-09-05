@@ -125,6 +125,18 @@
     .cal-value { font-size: 0.86rem; font-weight: 700; color: var(--green);
                  font-variant-numeric: tabular-nums; }
 
+    /* Reflectancia: imagem em width:100%/height:auto (sem letterbox de object-fit)
+       pra mapear 1:1 as coordenadas do mouse pros pixels reais da foto. */
+    .refl-imgwrap { background: #0b0d13; border: 1px solid var(--line); border-radius: 10px;
+                    position: relative; overflow: hidden; min-height: 160px;
+                    display: flex; align-items: center; justify-content: center;
+                    margin-bottom: 0.7rem; }
+    .refl-imgwrap img { display: block; width: 100%; height: auto; cursor: crosshair; }
+    .refl-imgwrap .placeholder { color: #6b7280; font-size: 0.85rem; padding: 0 1rem; text-align: center; }
+    .refl-box { position: absolute; border: 2px solid #22c55e; background: rgba(34,197,94,0.15);
+                pointer-events: none; display: none; }
+    .refl-means { font-size: 0.78rem; color: var(--muted2); line-height: 1.6; }
+
     .btn-pos { border-color: var(--blue); color: var(--blue); }
     .btn-pos:hover { background: var(--blue-soft); }
     .filters td:last-child { display: flex; gap: 6px; }
@@ -283,17 +295,24 @@
             <button class="btn btn-primary needs-stream" id="geoBtn" onclick="geoFrame()" disabled>Calibração Espacial</button>
             <button class="btn" id="streamBtn" onclick="toggleStream()">Start Stream</button>
             <div class="ref-stack">
-              <button class="btn needs-stream" onclick="refCal(100)" disabled>Calibração Reflectância 100</button>
-              <button class="btn needs-stream" onclick="refCal(0)" disabled>Calibração Reflectância 0</button>
+              <button class="btn needs-stream" onclick="refCal(100, this)" disabled>Calibração Reflectância 100</button>
+              <button class="btn needs-stream" onclick="refCal(0, this)" disabled>Calibração Reflectância 0</button>
             </div>
           </div>
           <p class="illum-note" style="margin-top:0.7rem;">Ligue o stream: Espacial usa um QR de tamanho conhecido; Reflectância 100/0 são as referências branca/escura.</p>
         </div>
 
-        <!-- Calibração de reflectância (a implementar) -->
+        <!-- Calibração de reflectância -->
         <div class="card">
-          <h2>Calibração de reflectância</h2>
-          <div class="placeholder-box">Em breve — calibração de reflectância</div>
+          <h2>Calibração de reflectância (100%)</h2>
+          <div class="refl-imgwrap" id="refl-wrap">
+            <img id="refl-img" alt="Referência 100%"
+                 {% if refl and refl.image %}src="{{ refl.image.url }}" style="display:block"{% else %}style="display:none"{% endif %}>
+            <div id="refl-box" class="refl-box"></div>
+            <span class="placeholder" id="refl-ph"
+                  style="{% if refl and refl.image %}display:none{% endif %}">use "Calibração Reflectância 100" com o stream ligado, depois arraste um retângulo sobre a referência branca</span>
+          </div>
+          <div id="refl-result" class="refl-means">{% if refl %}{% for nm, v in refl.means.items %}{{ nm }}nm: {{ v }}{% if not forloop.last %} · {% endif %}{% endfor %}{% else %}Depois da captura, arraste um retângulo sobre a região branca de referência.{% endif %}</div>
         </div>
 
       </div><!-- /row3 -->
@@ -334,7 +353,10 @@ const URLS = {
   ledsOff:  "{% url 'tests_leds_off' %}",
   posicionar: "{% url 'param_posicionar' %}",
   geoFrame: "{% url 'param_geo_frame' %}",
+  reflCapture: "{% url 'param_reflectance_capture' %}",
+  reflCompute: "{% url 'param_reflectance_compute' %}",
   save:     "{% url 'param_save' %}",
+  streamStop: "{% url 'video_feed_stop' %}",
 };
 function api(url, data) {
   return fetch(url, { method: 'POST', headers: { 'X-CSRFToken': CSRF },
@@ -394,17 +416,109 @@ function streamOn() {
   document.getElementById('streamBtn').textContent = 'Stop Stream';
   setNeedsStream(true);
 }
-function streamOff() {
+let streamStopping = false;
+async function streamOff() {
+  if (streamStopping) return;
+  streamStopping = true;
   const img = document.getElementById('stream');
   img.removeAttribute('src'); img.style.display = 'none';
   document.getElementById('stream-ph').style.display = 'block';
-  document.getElementById('streamBtn').textContent = 'Start Stream';
+  const btn = document.getElementById('streamBtn');
+  btn.textContent = 'Parando…'; btn.disabled = true;
   setNeedsStream(false);
+  let ok = false;
+  try {
+    const d = await api(URLS.streamStop);
+    ok = !!d.ok;
+    if (!ok) toast(d.error || 'A câmera não encerrou o stream a tempo.');
+  } catch (e) {
+    toast('Erro ao parar o stream');
+  } finally {
+    streamStopping = false;
+    btn.textContent = 'Start Stream'; btn.disabled = false;
+  }
+  return ok;
 }
-function toggleStream() { isStreaming() ? streamOff() : streamOn(); }
-function refCal(level) {   // placeholder ate implementarmos a calibracao de reflectancia
-  toast('Calibração de reflectância ' + level + ' — a implementar');
+async function toggleStream() { if (!streamStopping) { isStreaming() ? await streamOff() : streamOn(); } }
+/* ── Calibração de reflectância 100% ── */
+let reflSession = null;
+let reflImgNatural = { w: 0, h: 0 };
+
+async function refCal(level, btn) {
+  if (level !== 100) { toast('Calibração de reflectância 0 — a implementar'); return; }
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Capturando…';
+  const wasStreaming = isStreaming();
+  if (wasStreaming) {
+    // libera a câmera p/ capturar (1 leitor só); se não conseguir, não arrisca a captura
+    if (!(await streamOff())) { btn.disabled = false; btn.textContent = orig; return; }
+  }
+  try {
+    const d = await api(URLS.reflCapture);
+    if (!d.ok) { toast(d.error || 'Falha na captura'); return; }
+    reflSession = d.session;
+    reflImgNatural = { w: d.width, h: d.height };
+    const img = document.getElementById('refl-img');
+    img.src = d.image_data;
+    img.style.display = 'block';
+    document.getElementById('refl-ph').style.display = 'none';
+    document.getElementById('refl-box').style.display = 'none';
+    document.getElementById('refl-result').textContent =
+      'Fotos tiradas — arraste um retângulo sobre a região branca de referência.';
+    toast('Fotos capturadas ✓ (' + (d.folder || 'media/reflectance/') + ') — selecione a região 100%');
+  } catch (e) {
+    toast('Erro na captura');
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+    if (wasStreaming) streamOn();   // religa o stream
+  }
 }
+
+(function setupReflDrag() {
+  const wrap = document.getElementById('refl-wrap');
+  const img = document.getElementById('refl-img');
+  const box = document.getElementById('refl-box');
+  let start = null;
+
+  function toCoords(evt) {
+    const r = img.getBoundingClientRect();
+    const dispX = Math.max(0, Math.min(r.width, evt.clientX - r.left));
+    const dispY = Math.max(0, Math.min(r.height, evt.clientY - r.top));
+    const scale = r.width ? (reflImgNatural.w / r.width) : 1;
+    return { dispX, dispY, x: dispX * scale, y: dispY * scale };
+  }
+
+  wrap.addEventListener('mousedown', (evt) => {
+    if (!reflSession || img.style.display === 'none') return;
+    start = toCoords(evt);
+    box.style.display = 'block';
+    box.style.left = start.dispX + 'px'; box.style.top = start.dispY + 'px';
+    box.style.width = '0px'; box.style.height = '0px';
+  });
+  window.addEventListener('mousemove', (evt) => {
+    if (!start) return;
+    const cur = toCoords(evt);
+    box.style.left = Math.min(start.dispX, cur.dispX) + 'px';
+    box.style.top = Math.min(start.dispY, cur.dispY) + 'px';
+    box.style.width = Math.abs(cur.dispX - start.dispX) + 'px';
+    box.style.height = Math.abs(cur.dispY - start.dispY) + 'px';
+  });
+  window.addEventListener('mouseup', (evt) => {
+    if (!start) return;
+    const cur = toCoords(evt);
+    const x = Math.round(Math.min(start.x, cur.x)), y = Math.round(Math.min(start.y, cur.y));
+    const w = Math.round(Math.abs(cur.x - start.x)), h = Math.round(Math.abs(cur.y - start.y));
+    start = null;
+    if (w < 5 || h < 5) { box.style.display = 'none'; return; }
+    apiJSON(URLS.reflCompute, { session: reflSession, x, y, w, h })
+      .then(d => {
+        if (!d.ok) { toast(d.error || 'Falha ao calcular'); return; }
+        document.getElementById('refl-result').textContent =
+          Object.entries(d.means).map(([nm, v]) => `${nm}nm: ${v}`).join(' · ');
+        toast('Calibração de reflectância 100% salva ✓');
+      })
+      .catch(() => toast('Erro ao calcular'));
+  });
+})();
 function geoFrame() {
   const btn = document.getElementById('geoBtn');
   const el = document.getElementById('geo-result');
@@ -433,7 +547,7 @@ function geoFrame() {
 }
 
 /* ── Iluminação: toggle ON/OFF + contador (auto-off) + preview ── */
-const COUNTDOWN_START = 5;   // segundos ate apagar sozinho (nao zera o slider)
+const COUNTDOWN_START = 3;   // segundos ate apagar sozinho (nao zera o slider)
 const bandTimers = {};       // nm -> id do setInterval
 const bandPreview = {};      // nm -> LED ligado no preview?
 let bandSlide = {};          // nm -> debounce do slider

@@ -36,6 +36,25 @@ class GeometricCalibration(models.Model):
         return f"{self.mm_per_pixel:.5f} mm/px ({self.created:%Y-%m-%d %H:%M})"
 
 
+class ReflectanceCalibration(models.Model):
+    """Referencia branca (100%) de reflectancia: uma foto por banda (LED_BANDS)
+    e a media de intensidade de cada banda dentro da bounding box selecionada
+    pelo usuario sobre a imagem de uma banda de referencia."""
+    means = models.JSONField(default=dict)   # {"365": 12.3, ..., "850": 45.6}
+    bbox_x = models.PositiveIntegerField(default=0)
+    bbox_y = models.PositiveIntegerField(default=0)
+    bbox_w = models.PositiveIntegerField(default=0)
+    bbox_h = models.PositiveIntegerField(default=0)
+    image = models.ImageField(upload_to='reflectance/', blank=True)  # banda de referencia usada na selecao
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created"]
+
+    def __str__(self):
+        return f"Reflectância 100% ({self.created:%Y-%m-%d %H:%M})"
+
+
 class BandParameter(models.Model):
     """Intensidade parametrizada de cada banda de LED (independente dos filtros).
     intensity em 0-255 (dutycycle do PWM)."""

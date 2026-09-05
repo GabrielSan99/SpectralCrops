@@ -3,11 +3,12 @@ from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import csrf_exempt
 from django.http import StreamingHttpResponse, JsonResponse
 from django.core.files.base import ContentFile
+from django.conf import settings
 
 import pigpio
 from .camera_functions import ArducamCamera
 from .models import (FilterPosition, BandParameter, GeometricCalibration,
-                     DEFAULT_FILTER_NAME)
+                     ReflectanceCalibration, DEFAULT_FILTER_NAME)
 import os
 from datetime import datetime
 import base64
@@ -19,6 +20,35 @@ import cv2
 import numpy as np
 
 camera = ArducamCamera()
+
+# Ha uma unica camera UVC. O browser pode levar alguns instantes para encerrar
+# uma conexao MJPEG ao remover o src da tag <img>; sem este controle, um Start
+# imediato cria um segundo leitor de /dev/videoN e a Arducam para de responder.
+_stream_state_lock = threading.Lock()
+_active_stream = None
+STREAM_STOP_TIMEOUT = 3.0
+
+
+def _stop_active_stream():
+    """Solicita o fim do stream atual e espera a camera ser liberada."""
+    with _stream_state_lock:
+        state = _active_stream
+    if state is None:
+        return True
+    state["stop"].set()
+    return state["finished"].wait(STREAM_STOP_TIMEOUT)
+
+
+def _controlled_stream(state):
+    """Envolve o gerador da camera e publica quando o release terminou."""
+    global _active_stream
+    try:
+        yield from camera.stream_frames(state["stop"])
+    finally:
+        state["finished"].set()
+        with _stream_state_lock:
+            if _active_stream is state:
+                _active_stream = None
 
 # ─────────────────────────────────────────────────────────────
 # pigpio compartilhado (uma conexao reaproveitada entre requisicoes)
@@ -83,6 +113,15 @@ LED_PWM = True
 PWM_FREQ = 1000  # Hz do PWM software dos LEDs (alto o bastante p/ nao piscar)
 CAPTURE_DC = 255  # brilho usado nas capturas (get_all_bands)
 
+# ── Calibracao de reflectancia (100%) ──────────────────────────────────
+# Captura uma foto por banda; o usuario desenha uma bounding box sobre a foto
+# da banda REFL_BASE_BAND (mesma regiao vale pra todas -- camera fixa, so o
+# LED muda entre os frames). O resultado (media por banda dentro da bbox) so
+# vai pro banco depois que o usuario confirma a selecao (param_reflectance_compute).
+REFL_BASE_BAND = "660"  # banda (visivel) mostrada na UI p/ desenhar a bbox
+_reflectance_capture = {}          # {"session": str, "frames": {nm: ndarray}}
+_reflectance_lock = threading.Lock()
+
 # ultimo brilho "ligado" de cada banda, pra o toggle restaurar
 _led_last = {nm: 255 for nm in LED_BANDS}
 
@@ -93,6 +132,45 @@ def _led_set(pi, pin, dc):
         pi.set_PWM_dutycycle(pin, dc)
     else:
         pi.write(pin, 1 if dc > 0 else 0)
+
+
+# ── Auto-desligamento das bandas NO SERVIDOR ──────────────────────────
+# O contador visual nas telas e so feedback; quem GARANTE o desligamento e
+# este timer aqui, porque ele roda no processo do Django, independente da
+# aba do navegador estar aberta, em foco, ou o notebook ter dormido no meio
+# do caminho. Mantenha LED_AUTO_OFF_SECONDS igual ao COUNTDOWN_START do JS
+# (tests.html e parameterization.html) pra tela e servidor baterem.
+LED_AUTO_OFF_SECONDS = 3
+_led_off_timers = {}              # nm -> threading.Timer pendente
+_led_timer_lock = threading.Lock()  # protege o dict acima
+
+
+def _cancel_led_off(nm):
+    with _led_timer_lock:
+        t = _led_off_timers.pop(nm, None)
+    if t is not None:
+        t.cancel()
+
+
+def _auto_off_led(nm, pin):
+    """Alvo do threading.Timer -- roda numa thread propria do processo do
+    Django, nao depende de nenhum navegador estar aberto."""
+    with _led_timer_lock:
+        _led_off_timers.pop(nm, None)
+    pi = get_pi()
+    _led_set(pi, pin, 0)
+    print(f"{nm}nm -> desligado automaticamente (timeout de {LED_AUTO_OFF_SECONDS}s)")
+
+
+def _schedule_led_off(nm, pin):
+    """(Re)agenda o desligamento automatico dessa banda daqui a
+    LED_AUTO_OFF_SECONDS. Chamar de novo antes disso reinicia a contagem."""
+    _cancel_led_off(nm)
+    t = threading.Timer(LED_AUTO_OFF_SECONDS, _auto_off_led, args=(nm, pin))
+    t.daemon = True
+    with _led_timer_lock:
+        _led_off_timers[nm] = t
+    t.start()
 
 # ─────────────────────────────────────────────────────────────
 # Motor de passo (DRV8825) — portado do motor_web_raspberry.py p/ pigpio
@@ -234,9 +312,29 @@ def index(request):
 
 @login_required
 def video_feed(request):
+    global _active_stream
+    # Protege tambem contra uma reconexao automatica do browser sem Stop.
+    if not _stop_active_stream():
+        return JsonResponse({"ok": False,
+                             "error": "O stream anterior ainda está encerrando."}, status=503)
+    state = {"stop": threading.Event(), "finished": threading.Event()}
+    with _stream_state_lock:
+        _active_stream = state
     return StreamingHttpResponse(
-        camera.stream_frames(),
+        _controlled_stream(state),
         content_type='multipart/x-mixed-replace; boundary=frame')
+
+
+@login_required
+def video_feed_stop(request):
+    """Encerra explicitamente o MJPEG e so responde apos liberar a camera."""
+    if request.method != 'POST':
+        return JsonResponse({"error": "POST"}, status=405)
+    stopped = _stop_active_stream()
+    if not stopped:
+        return JsonResponse({"ok": False,
+                             "error": "A câmera não encerrou o stream a tempo."}, status=503)
+    return JsonResponse({"ok": True})
 
 
 @csrf_exempt
@@ -310,8 +408,14 @@ def tests_led(request):
         else:
             _led_set(pi, pin, _led_last.get(nm, 255))
 
-    print(f"{nm}nm -> dc={_led_dc(pi, pin)}")
-    return JsonResponse({"band": nm, "dc": _led_dc(pi, pin)})
+    dc_now = _led_dc(pi, pin)
+    if dc_now > 0:
+        _schedule_led_off(nm, pin)  # (re)agenda o auto-off no servidor
+    else:
+        _cancel_led_off(nm)         # ja apagada -> sem timer pendente
+
+    print(f"{nm}nm -> dc={dc_now}")
+    return JsonResponse({"band": nm, "dc": dc_now})
 
 
 @login_required
@@ -319,8 +423,9 @@ def tests_leds_off(request):
     if request.method != 'POST':
         return JsonResponse({"error": "POST"}, status=405)
     pi = get_pi()
-    for pin in LED_BANDS.values():
+    for nm, pin in LED_BANDS.items():
         _led_set(pi, pin, 0)
+        _cancel_led_off(nm)
     print("Turn off all leds!")
     return JsonResponse({"ok": True})
 
@@ -359,6 +464,8 @@ def tests_capture(request):
 
     if action == 'get_all_bands':
         # apaga tudo, captura banda por banda em brilho cheio, apaga de novo
+        for nm in LED_BANDS:
+            _cancel_led_off(nm)  # evita apagar a banda no meio da exposicao
         for pin in LED_BANDS.values():
             _led_set(pi, pin, 0)
         now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -391,8 +498,9 @@ def parameterization(request):
     bands = [{"nm": nm, "color": LED_COLORS[nm], "intensity": bparams.get(nm, 0)}
              for nm in LED_BANDS]
     cal = GeometricCalibration.objects.first()   # calibracao mais recente
+    refl = ReflectanceCalibration.objects.first()   # calibracao de reflectancia 100% mais recente
     return render(request, "pages/parameterization.html",
-                  {"filters": filters, "bands": bands, "cal": cal})
+                  {"filters": filters, "bands": bands, "cal": cal, "refl": refl})
 
 
 @login_required
@@ -516,3 +624,115 @@ def param_geo_frame(request):
         "tilted": deviation > 0.05,   # >5% de divergencia entre os lados = torto
         "image_url": cal.image.url if cal.image else "",
     })
+
+
+@login_required
+def param_reflectance_capture(request):
+    """Tira uma foto por banda (LED_BANDS, brilho cheio) e guarda os frames em
+    memoria (processo do Django). Retorna a foto da banda REFL_BASE_BAND (como
+    data URL) para o usuario desenhar a bounding box da referencia 100%.
+
+    Tambem salva uma copia de cada banda em media/reflectance/refl_<timestamp>/,
+    so pra conferirmos as fotos tiradas (modo de teste)."""
+    if request.method != 'POST':
+        return JsonResponse({"error": "POST"}, status=405)
+    # Encerra qualquer stream MJPEG ativo: a camera UVC so aceita um leitor
+    # por vez e, com o stream aberto, a captura pode travar ou entregar frames
+    # invalidos. O botao na pagina ja para o stream; aqui e so a rede de seguranca.
+    if not _stop_active_stream():
+        return JsonResponse({"ok": False,
+            "error": "O stream anterior ainda está encerrando, tente de novo."}, status=503)
+
+    pi = get_pi()
+    for nm in LED_BANDS:
+        _cancel_led_off(nm)  # evita apagar a banda no meio da exposicao
+    for pin in LED_BANDS.values():
+        _led_set(pi, pin, 0)
+
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    frames = {}
+    base_frame = None
+    try:
+        for nm, pin in LED_BANDS.items():
+            _led_set(pi, pin, CAPTURE_DC)
+            time.sleep(0.6)  # da tempo do LED subir e da exposicao estabilizar
+            frame = camera.grab()
+            _led_set(pi, pin, 0)
+            time.sleep(0.3)  # espera o LED apagar antes da proxima banda
+            if frame is None:
+                return JsonResponse({"ok": False,
+                    "error": f"Sem imagem da câmera (banda {nm}nm)."}, status=409)
+            frames[nm] = frame
+            if nm == REFL_BASE_BAND:
+                base_frame = frame
+    finally:
+        for pin in LED_BANDS.values():
+            _led_set(pi, pin, 0)
+
+    # copia de teste: 1 PNG por banda, em media/reflectance/refl_<timestamp>/
+    folder = f"refl_{stamp}"
+    out_dir = os.path.join(settings.MEDIA_ROOT, "reflectance", folder)
+    os.makedirs(out_dir, exist_ok=True)
+    for nm, frame in frames.items():
+        cv2.imwrite(os.path.join(out_dir, f"{nm}nm.png"), frame)
+    print(f"Captura de reflectancia salva em: {out_dir}")
+
+    ok_enc, buf = cv2.imencode('.png', base_frame)
+    if not ok_enc:
+        return JsonResponse({"ok": False, "error": "Falha ao codificar imagem."}, status=500)
+
+    session = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    with _reflectance_lock:
+        _reflectance_capture.clear()
+        _reflectance_capture['session'] = session
+        _reflectance_capture['frames'] = frames
+
+    b64 = base64.b64encode(buf.tobytes()).decode('ascii')
+    return JsonResponse({"ok": True, "session": session, "folder": folder,
+                         "image_data": f"data:image/png;base64,{b64}",
+                         "width": int(base_frame.shape[1]), "height": int(base_frame.shape[0])})
+
+
+@login_required
+def param_reflectance_compute(request):
+    """Recebe a bbox (pixels, na imagem da banda REFL_BASE_BAND) escolhida pelo
+    usuario; calcula a media de cada banda dentro dela e salva a calibracao."""
+    if request.method != 'POST':
+        return JsonResponse({"error": "POST"}, status=405)
+    data = json.loads(request.body or "{}")
+
+    with _reflectance_lock:
+        session = _reflectance_capture.get('session')
+        frames = _reflectance_capture.get('frames')
+
+    if not frames or data.get('session') != session:
+        return JsonResponse({"ok": False,
+            "error": "Sessão de captura expirada — tire as fotos de novo."}, status=409)
+
+    try:
+        x = max(0, int(data['x'])); y = max(0, int(data['y']))
+        w = max(1, int(data['w'])); h = max(1, int(data['h']))
+    except (KeyError, ValueError, TypeError):
+        return JsonResponse({"ok": False, "error": "Bounding box inválida."}, status=400)
+
+    means = {}
+    for nm, frame in frames.items():
+        fh, fw = frame.shape[:2]
+        x0, y0 = min(x, fw - 1), min(y, fh - 1)
+        x1, y1 = min(x + w, fw), min(y + h, fh)
+        crop = frame[y0:y1, x0:x1]
+        means[nm] = round(float(crop.mean()), 2) if crop.size else 0.0
+
+    cal = ReflectanceCalibration(means=means, bbox_x=x, bbox_y=y, bbox_w=w, bbox_h=h)
+    base_frame = frames.get(REFL_BASE_BAND)
+    if base_frame is not None:
+        ok_enc, buf = cv2.imencode('.png', base_frame)
+        if ok_enc:
+            now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            cal.image.save(f"refl_{now}.png", ContentFile(buf.tobytes()), save=False)
+    cal.save()
+
+    with _reflectance_lock:
+        _reflectance_capture.clear()
+
+    return JsonResponse({"ok": True, "means": means})

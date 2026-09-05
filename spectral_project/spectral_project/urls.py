@@ -19,6 +19,7 @@ urlpatterns = [
     path('', views.index, name="index"),
 
     path('video_feed/', views.video_feed, name='video_feed'),
+    path('video_feed/stop/', views.video_feed_stop, name='video_feed_stop'),
     path('img_segmentation/', views.img_segmentation, name='img_segmentation'),
 
     path('tests/', views.tests, name="tests"),
@@ -35,6 +36,8 @@ urlpatterns = [
     path('parameterization/motor/', views.param_motor, name='param_motor'),
     path('parameterization/posicionar/', views.param_posicionar, name='param_posicionar'),
     path('parameterization/geo_frame/', views.param_geo_frame, name='param_geo_frame'),
+    path('parameterization/reflectance/capture/', views.param_reflectance_capture, name='param_reflectance_capture'),
+    path('parameterization/reflectance/compute/', views.param_reflectance_compute, name='param_reflectance_compute'),
     path('parameterization/save/', views.param_save, name='param_save'),
 ]
 

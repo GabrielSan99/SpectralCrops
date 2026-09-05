@@ -202,6 +202,7 @@ const URLS = {
   motor:       "{% url 'tests_motor' %}",
   motorReset:  "{% url 'tests_motor_reset' %}",
   capture:     "{% url 'tests_capture' %}",
+  streamStop:  "{% url 'video_feed_stop' %}",
 };
 
 function api(url, data) {
@@ -214,7 +215,7 @@ function getJSON(url) { return fetch(url).then(r => r.json()); }
 function camLog(msg) { document.getElementById('cam-log').textContent = msg; }
 
 /* ── LEDs (brilho PWM) + contador de auto-desligamento (amarelo) ── */
-const COUNTDOWN_START = 5;   // segundos; ajuste aqui se quiser outro tempo
+const COUNTDOWN_START = 3;   // segundos; ajuste aqui se quiser outro tempo
 const timers = {};           // banda -> id do setInterval
 const editing = {};          // banda -> timestamp da ultima edicao do slider
 
@@ -317,13 +318,29 @@ function streamOn() {
   document.getElementById('stream-ph').style.display = 'none';
   document.getElementById('streamBtn').textContent = 'Stop Stream';
 }
-function streamOff() {
+let streamStopping = false;
+async function streamOff() {
+  if (streamStopping) return;
+  streamStopping = true;
   const img = document.getElementById('stream');
   img.removeAttribute('src'); img.style.display = 'none';
   document.getElementById('stream-ph').style.display = 'block';
-  document.getElementById('streamBtn').textContent = 'Start Stream';
+  const btn = document.getElementById('streamBtn');
+  btn.textContent = 'Parando…'; btn.disabled = true;
+  let ok = false;
+  try {
+    const d = await api(URLS.streamStop);
+    ok = !!d.ok;
+    if (!ok) camLog(d.error || 'A câmera não encerrou o stream a tempo.');
+  } catch (e) {
+    camLog('Erro ao parar o stream');
+  } finally {
+    streamStopping = false;
+    btn.textContent = 'Start Stream'; btn.disabled = false;
+  }
+  return ok;
 }
-function toggleStream() { isStreaming() ? streamOff() : streamOn(); }
+async function toggleStream() { if (!streamStopping) { isStreaming() ? await streamOff() : streamOn(); } }
 
 /* ── Capturas ── */
 function getFrame() {
@@ -335,7 +352,7 @@ function getFrame() {
 async function getAllBands() {
   const btn = document.getElementById('allBandsBtn');
   const wasStreaming = isStreaming();
-  if (wasStreaming) streamOff();       // libera a camera durante a captura
+  if (wasStreaming && !(await streamOff())) return; // não arrisca a captura com 2 leitores
   btn.disabled = true;
   const original = btn.textContent;
   btn.textContent = 'Capturando...';
