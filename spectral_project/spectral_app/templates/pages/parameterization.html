@@ -4,6 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>(function(){try{var t=localStorage.getItem('spectralcrops-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
   <link rel="icon" type="image/png" href="{% static 'img/SpectralCrops-figure.png' %}">
   <title>Parametrização — SpectralCrops</title>
   <style>
@@ -11,64 +12,57 @@
     :root {
       --bg: #f4f6f8; --panel: #ffffff; --panel2: #f7f9fb; --line: #e6e9ee;
       --ink: #1f2937; --muted: #6b7280; --muted2: #9aa2ad;
-      --blue: #2f66e0; --blue-soft: #eaf0fd; --green: #2f9e5f;
+      --blue: #2f66e0; --blue-soft: #eaf0fd; --blue-hover: #2557c4; --green: #2f9e5f;
+      --hover: #f1f3f7;
+    }
+    :root[data-theme="dark"] {
+      --bg: #0f1117; --panel: #1a1d27; --panel2: #12151e; --line: #2a2d3a;
+      --ink: #e5e7eb; --muted: #a4abbd; --muted2: #6f7688;
+      --blue: #4f8ef7; --blue-soft: #16233d; --blue-hover: #6ba2f9; --green: #34d399;
+      --hover: #222739;
     }
     body {
       font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
       background: var(--bg); color: var(--ink); display: flex; min-height: 100vh;
+      transition: background .2s, color .2s;
     }
 
-    /* Sidebar oculta, revelada no hover do puxador (canto esquerdo) */
-    .side-trigger { position: fixed; left: 0; top: 0; height: 100vh; z-index: 50; }
-    .side-handle {
-      position: absolute; left: 0; top: 16px; width: 40px; height: 48px;
-      display: flex; align-items: center; justify-content: center;
-      background: var(--panel); border: 1px solid var(--line); border-left: none;
-      border-radius: 0 12px 12px 0; color: var(--muted); cursor: pointer;
-      box-shadow: 2px 0 10px rgba(16,24,40,0.08); transition: opacity .2s;
-    }
-    .side-handle svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; }
-    .side-trigger:hover .side-handle, .sidebar:focus-within ~ .side-handle { opacity: 0; }
-
-    .sidebar {
-      position: absolute; left: 0; top: 0; height: 100vh;
-      width: 250px; background: var(--panel); border-right: 1px solid var(--line);
-      padding: 1.6rem 1.1rem; display: flex; flex-direction: column; gap: 2rem;
-      transform: translateX(-100%); transition: transform .28s ease;
-      box-shadow: 6px 0 24px rgba(16,24,40,0.14);
-    }
-    .side-trigger:hover .sidebar, .sidebar:focus-within { transform: translateX(0); }
-    .logo { padding: 0.4rem 0.6rem; }
-    .logo img { width: 100%; max-width: 190px; height: auto; }
-    nav { display: flex; flex-direction: column; gap: 0.35rem; }
-    nav a {
-      display: flex; align-items: center; gap: 0.85rem; padding: 0.75rem 1rem;
-      border-radius: 10px; color: var(--muted); text-decoration: none;
-      font-size: 0.95rem; font-weight: 500; transition: background .15s, color .15s;
-    }
-    nav a svg { width: 20px; height: 20px; stroke: currentColor; fill: none;
-                stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
-    nav a:hover { background: #f1f3f7; color: var(--ink); }
-    nav a.active { background: var(--blue); color: #fff; }
+    /* Menu lateral: ver partials/sidebar.html (traz seu proprio CSS) */
 
     /* Main */
     .main { flex: 1; padding: 2.2rem 2.6rem 4rem 3.4rem; overflow-y: auto; }
     .page-head { display: flex; align-items: center; justify-content: space-between;
                  gap: 1rem; margin-bottom: 1.8rem; flex-wrap: wrap;
                  max-width: 1200px; margin-inline: auto; }
+    .flash-messages { max-width: 1200px; margin: 0 auto 1.2rem; display: flex; flex-direction: column; gap: 8px; }
+    .flash-msg { padding: 10px 14px; border-radius: 9px; font-size: 0.9rem;
+                 background: #fef3e0; color: #92400e; border: 1px solid #fde3b8; }
+    .flash-msg.flash-error { background: #fdeaea; color: #b42318; border-color: #fecdc9; }
+    .flash-msg.flash-success { background: #e3f6e9; color: #1c7a3d; border-color: #c9ecd5; }
+    :root[data-theme="dark"] .flash-msg { background: #3a2a10; color: #fbbf6b; border-color: #5c4318; }
+    :root[data-theme="dark"] .flash-msg.flash-error { background: #3a1414; color: #ff8b8b; border-color: #5c2323; }
+    :root[data-theme="dark"] .flash-msg.flash-success { background: #133024; color: #6ee7b7; border-color: #1f4f3c; }
+    .stale-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem;
+                   font-weight: 600; padding: 3px 8px; border-radius: 999px; margin-left: 8px;
+                   background: #fef3e0; color: #92400e; border: 1px solid #fde3b8; vertical-align: middle; }
+    :root[data-theme="dark"] .stale-badge { background: #3a2a10; color: #fbbf6b; border-color: #5c4318; }
     h1 { font-size: 1.7rem; font-weight: 700; letter-spacing: -0.01em; }
     .sub { color: var(--muted); font-size: 0.95rem; margin-top: 0.25rem; }
+    .project-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--blue-soft);
+                     border: 1px solid #cddcfa; color: var(--blue); padding: 6px 12px; border-radius: 8px;
+                     font-size: 0.85rem; text-decoration: none; white-space: nowrap; }
+    .project-pill:hover { border-color: var(--blue); }
 
     .btn {
       border: 1px solid var(--line); background: var(--panel); color: var(--ink);
       border-radius: 9px; padding: 8px 14px; font-size: 0.85rem; font-weight: 500;
       cursor: pointer; transition: background .15s, border-color .15s, transform .1s, opacity .15s;
     }
-    .btn:not(:disabled):hover { background: #f1f3f7; border-color: var(--blue); }
+    .btn:not(:disabled):hover { background: var(--hover); border-color: var(--blue); }
     .btn:not(:disabled):active { transform: scale(0.97); }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }   /* desbotado quando indisponivel */
     .btn-primary { background: var(--blue); color: #fff; border-color: var(--blue); }
-    .btn-primary:not(:disabled):hover { background: #2557c4; }
+    .btn-primary:not(:disabled):hover { background: var(--blue-hover); }
 
     .main > .card { margin-bottom: 1.4rem; }
     .page-body { display: flex; flex-direction: column; gap: 1.4rem;
@@ -82,6 +76,8 @@
     .card.wide { grid-column: 1 / -1; }
     .card h2 { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.1em;
                text-transform: uppercase; color: var(--muted2); margin-bottom: 1.1rem; }
+    /* botao de acao logo abaixo da imagem reservada (calibracoes + stream) */
+    .card > .btn { width: 100%; margin-bottom: 0.7rem; }
     .card-div { border: none; border-top: 1px solid var(--line); margin: 1.3rem 0; }
 
     /* Motor */
@@ -103,19 +99,72 @@
     .limit-pill.on { color: #b42318; background: #fef3f2; border-color: #fecdc9; }
     .limit-pill.on .limit-dot { background: #f04438; box-shadow: 0 0 6px #f0443888; }
 
-    /* Camera */
+    /* Camera -- aspect-ratio 8:5 = 1280x800 (mesma proporcao da camera), sem
+       barra preta de letterbox (altura fixa + object-fit deixava sobra). */
     .stream-wrap { background: #0b0d13; border: 1px solid var(--line); border-radius: 10px;
-                   height: 360px; display: flex; align-items: center; justify-content: center;
-                   overflow: hidden; margin-bottom: 0.9rem; }
-    .stream-wrap img { max-width: 100%; max-height: 100%; object-fit: contain; }
+                   width: 100%; max-width: 640px; aspect-ratio: 8 / 5; display: flex; align-items: center; justify-content: center;
+                   overflow: hidden; margin: 0 auto 0.9rem; }
+    .stream-wrap img { width: 100%; height: 100%; object-fit: cover; }
     .stream-wrap .placeholder { color: #6b7280; font-size: 0.85rem; }
+    #streamBtn { max-width: 640px; margin-inline: auto; display: block; }
 
-    .cam-btns { display: flex; gap: 8px; align-items: stretch; }
-    .cam-btns > .btn, .cam-btns > .ref-stack { flex: 1 1 0; min-width: 0; }
-    .cam-btns .btn { font-size: 0.72rem; padding: 8px 6px; white-space: normal;
-                     line-height: 1.2; text-align: center; }
-    .ref-stack { display: flex; flex-direction: column; gap: 6px; }
-    .ref-stack .btn { width: 100%; }
+    /* Câmera + Iluminação no mesmo card, lado a lado -- a stream mantém o
+       tamanho de sempre (max-width 640px, ver .stream-wrap acima), a
+       iluminação ocupa o espaço restante. */
+    .cam-illum-row { display: flex; gap: 1.8rem; align-items: flex-start; flex-wrap: wrap; }
+    .cam-illum-stream { flex: 0 0 auto; width: 100%; max-width: 640px; }
+    .cam-illum-lights { flex: 1 1 320px; min-width: 0; }
+    .cam-illum-lights > h2 { margin-top: 0; }
+
+    /* Barra de progresso da captura (8 bandas) -- estimada no cliente, ver
+       mesmo padrao em data_acquisition.html. */
+    .cap-progress { margin: 0.6rem 0 0; display: none; }
+    .cap-progress-bar { background: var(--panel2); border: 1px solid var(--line);
+                         border-radius: 999px; height: 8px; overflow: hidden; }
+    .cap-progress-fill { height: 100%; width: 0%; background: var(--blue);
+                          transition: width .25s linear; }
+    .cap-progress-label { font-size: 0.75rem; color: var(--muted); margin-top: 5px;
+                           text-align: center; font-variant-numeric: tabular-nums; }
+
+    /* Controles V4L2/UVC da camera */
+    .cam-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+                  gap: 1.4rem; margin-top: 0.2rem; }
+    .cam-group h3 { font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+                    letter-spacing: 0.06em; color: var(--muted2); margin-bottom: 0.7rem; }
+    .cam-row { display: grid; grid-template-columns: 124px 1fr 42px; align-items: center;
+               gap: 8px; padding: 5px 0; }
+    .cam-row.cam-row-select { grid-template-columns: 124px 1fr; }
+    .cam-row label { font-size: 0.82rem; color: var(--muted); display: flex; align-items: center; }
+    .cam-row input[type=range] { width: 100%; accent-color: var(--blue); }
+    .cam-row input[type=range]:disabled { opacity: 0.35; }
+    .cam-val { font-size: 0.78rem; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+    .cam-toggle { display: flex; align-items: center; gap: 8px; font-size: 0.85rem;
+                  color: var(--ink); padding: 4px 0 8px; cursor: pointer; }
+    .cam-toggle input { accent-color: var(--blue); width: 16px; height: 16px; }
+    .cam-select { width: 100%; padding: 7px 9px; border: 1px solid var(--line);
+                  border-radius: 8px; font-size: 0.85rem; font-family: inherit; color: var(--ink); }
+
+    /* Icone "?" com tooltip -- explica cada controle de camera sem precisar
+       parar o mouse em cima do texto (so no icone, do jeito que as pessoas
+       ja esperam desse padrao). */
+    .info-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 14px; height: 14px; border-radius: 50%; margin-left: 5px; flex-shrink: 0;
+      background: var(--panel2); border: 1px solid var(--line); color: var(--muted2);
+      font-size: 9px; font-weight: 700; cursor: help; line-height: 1;
+    }
+    .info-icon:hover { border-color: var(--blue); color: var(--blue); }
+    [data-tip] { position: relative; }
+    [data-tip]::after {
+      content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: 0;
+      background: var(--ink); color: var(--bg); padding: 8px 11px; border-radius: 8px;
+      font-size: .74rem; font-weight: 400; line-height: 1.45; white-space: normal; width: 230px;
+      pointer-events: none; z-index: 200; opacity: 0; transition: opacity .15s .2s;
+      box-shadow: 0 4px 16px rgba(0,0,0,.22);
+    }
+    [data-tip]:hover::after { opacity: 1; }
+    .cam-foot { margin-top: 1.1rem; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .cam-status { font-size: 0.78rem; color: var(--muted2); }
 
     .cal-imgwrap { background: #0b0d13; border: 1px solid var(--line); border-radius: 10px;
                    min-height: 160px; display: flex; align-items: center; justify-content: center;
@@ -124,6 +173,19 @@
     .cal-imgwrap .placeholder { color: #6b7280; font-size: 0.85rem; }
     .cal-value { font-size: 0.86rem; font-weight: 700; color: var(--green);
                  font-variant-numeric: tabular-nums; }
+
+    /* Calibracao espacial: imagem em width:100%/height:auto (sem letterbox de
+       object-fit), igual refl-imgwrap -- precisa de mapeamento 1:1 pixel pra
+       desenhar o quadrilatero exato dos 4 cantos do QR detectado. */
+    .geo-imgwrap { background: #0b0d13; border: 1px solid var(--line); border-radius: 10px;
+                   position: relative; overflow: hidden; min-height: 160px;
+                   display: flex; align-items: center; justify-content: center;
+                   margin-bottom: 0.7rem; }
+    .geo-imgwrap img { display: block; width: 100%; height: auto; }
+    .geo-imgwrap .placeholder { color: #6b7280; font-size: 0.85rem; padding: 0 1rem; text-align: center; }
+    .geo-quad-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    #geo-quad { fill: rgba(34,197,94,0.15); stroke: #22c55e; stroke-width: 2px;
+                vector-effect: non-scaling-stroke; display: none; }
 
     /* Reflectancia: imagem em width:100%/height:auto (sem letterbox de object-fit)
        pra mapear 1:1 as coordenadas do mouse pros pixels reais da foto. */
@@ -165,7 +227,7 @@
     .filters .btn { padding: 6px 11px; font-size: 0.78rem; }
 
     /* Iluminacao */
-    .band-row { display: grid; grid-template-columns: 13px 50px 40px 1fr 34px 12px auto;
+    .band-row { display: grid; grid-template-columns: 13px 50px 40px 1fr 34px 64px 12px auto;
                 align-items: center; gap: 8px; padding: 7px 0; }
     .band-dot { width: 14px; height: 14px; border-radius: 50%; background: #d3d9e0;
                 transition: background .2s, box-shadow .2s; }
@@ -181,6 +243,13 @@
     .band-timer { font-size: 0.75rem; font-weight: 700; color: #eab308; text-align: center;
                   font-variant-numeric: tabular-nums; }
     .band-save { padding: 4px 10px; font-size: 0.7rem; }
+    .band-exposure { width: 100%; font-size: 0.75rem; padding: 3px 5px; text-align: right;
+                      border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+                      color: var(--ink); font-variant-numeric: tabular-nums; }
+    .band-exposure:disabled { opacity: 0.45; cursor: not-allowed; }
+    .band-auto-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+                      margin: -0.3rem 0 0.9rem; }
+    #band-auto-toggle { margin: 0; }
     .illum-foot { margin-top: 1rem; display: flex; align-items: center;
                   justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
     .illum-note { font-size: 0.78rem; color: var(--muted2); }
@@ -199,43 +268,24 @@
 </head>
 <body>
 
-  <!-- Sidebar oculta: aparece ao passar o mouse no puxador da esquerda -->
-  <div class="side-trigger">
-    <div class="side-handle" aria-label="Abrir menu">
-      <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-    </div>
-  <aside class="sidebar">
-    <div class="logo"><img src="{% static 'img/SpectralCrops-removed_background.png' %}" alt="SpectralCrops"></div>
-    <nav>
-      <a href="{% url 'index' %}">
-        <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>Home
-      </a>
-      <a href="{% url 'tests' %}">
-        <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Data Acquisition
-      </a>
-      <a href="#">
-        <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l3-4 3 3 4-6"/></svg>Analysis
-      </a>
-      <a href="#">
-        <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9zM9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>Machine Learning
-      </a>
-      <a class="active" href="{% url 'parameterization' %}">
-        <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="2" fill="currentColor" stroke="none"/></svg>Parameterization
-      </a>
-      <a href="#">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 0 1-4 0v-.1A1.6 1.6 0 0 0 6.6 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 4 13.6H3.9a2 2 0 0 1 0-4H4a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10.5 4H10.6a2 2 0 0 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8Z"/></svg>Settings
-      </a>
-    </nav>
-  </aside>
-  </div><!-- /side-trigger -->
+  {% include 'partials/sidebar.html' %}
 
   <!-- Main -->
   <main class="main">
+    {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+      <div class="flash-msg{% if message.tags %} flash-{{ message.tags }}{% endif %}">{{ message }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
     <div class="page-head">
       <div>
         <h1>Parametrização</h1>
         <p class="sub">Referencie as 6 posições de filtro (em passos do fim de curso) e a intensidade de iluminação.</p>
       </div>
+      <a class="project-pill" href="{% url 'index' %}" title="Trocar de projeto na Home">📁 {{ project.name }}</a>
     </div>
 
     <div class="page-body">
@@ -251,8 +301,8 @@
           <div class="jog">
             <label>passos/clique</label>
             <input type="number" id="jog-steps" value="5" min="1" max="2000">
-            <button class="btn" onclick="jog('ccw')">◀ Anti-horário</button>
-            <button class="btn" onclick="jog('cw')">Horário ▶</button>
+            <button class="btn" id="jog-ccw" onclick="jog('ccw')">◀ Anti-horário</button>
+            <button class="btn" id="jog-cw" onclick="jog('cw')">Horário ▶</button>
           </div>
           <span class="limit-pill" id="limit-pill"><span class="limit-dot"></span><span id="limit-txt">Fim de curso livre</span></span>
         </div>
@@ -275,49 +325,178 @@
         </table>
       </div>
 
-      <!-- LINHA 2: Calibração espacial | Stream | Calibração reflectância -->
-      <div class="row3">
+      <!-- LINHA 2: Controles V4L2/UVC da câmera -->
+      <div class="card">
+        <h2>Controles da Câmera</h2>
+        <div class="cam-groups">
 
-        <!-- Calibração espacial -->
-        <div class="card">
-          <h2>Calibração espacial</h2>
-          <div class="cal-imgwrap">
-            <img id="cal-img" alt="Imagem de calibração"
-                 {% if cal and cal.image %}src="{{ cal.image.url }}"{% endif %}
-                 style="{% if not cal or not cal.image %}display:none{% endif %}">
-            <span class="placeholder" id="cal-ph"
-                  style="{% if cal and cal.image %}display:none{% endif %}">sem calibração ainda</span>
+          <div class="cam-group">
+            <h3>Exposição</h3>
+            <p class="illum-note">O tempo de exposição agora é só por banda (card Iluminação) — a câmera aplica o tempo daquela banda sempre que você acende o LED dela, tanto na stream quanto nas capturas.</p>
+            <label class="cam-toggle">
+              <input type="checkbox" id="cam-exposure_dynamic_framerate" {% if cam.exposure_dynamic_framerate %}checked{% endif %}
+                     onchange="onCamBool('exposure_dynamic_framerate', this.checked)">
+              Framerate dinâmico
+              <span class="info-icon" data-tip="Permite a câmera baixar a taxa de quadros sozinha pra ganhar mais tempo de exposição em ambientes escuros. Deixa o stream mais lento (menos fluido) quando ativo, mas ajuda a captura em pouca luz.">?</span>
+            </label>
           </div>
-          <div id="geo-result" class="cal-value">{% if cal %}{{ cal.px_per_mm|floatformat:3 }} px/mm · {{ cal.mm_per_pixel|floatformat:5 }} mm/px · QR {{ cal.qr_mm|floatformat:0 }}mm = {{ cal.qr_px|floatformat:0 }}px{% endif %}</div>
-        </div>
 
-        <!-- Câmera / Stream -->
-        <div class="card">
-          <h2>Câmera</h2>
-          <div class="stream-wrap">
-            <img id="stream" alt="Camera Stream" data-src="{% url 'video_feed' %}">
-            <span class="placeholder" id="stream-ph">stream desligado</span>
-          </div>
-          <div class="cam-btns">
-            <button class="btn btn-primary needs-stream" id="geoBtn" onclick="geoFrame()" disabled>Calibração Espacial</button>
-            <button class="btn" id="streamBtn" onclick="toggleStream()">Start Stream</button>
-            <div class="ref-stack">
-              <button class="btn needs-stream" onclick="refCal(100, this)" disabled>Calibração Reflectância 100</button>
-              <button class="btn needs-stream" onclick="refCal(0, this)" disabled>Calibração Reflectância 0</button>
+          <div class="cam-group">
+            <h3>Balanço de branco</h3>
+            <label class="cam-toggle">
+              <input type="checkbox" id="cam-white_balance_automatic" {% if cam.white_balance_automatic %}checked{% endif %}
+                     onchange="onCamBool('white_balance_automatic', this.checked)">
+              Automático
+              <span class="info-icon" data-tip="Ajusta a temperatura de cor sozinha a cada quadro, tentando deixar branco parecer branco. Como aqui a iluminação é sempre um LED monocromático (uma cor por vez), o automático pode se confundir — geralmente é melhor desligar e fixar manualmente.">?</span>
+            </label>
+            <div class="cam-row">
+              <label for="cam-white_balance_temperature">Temperatura (K)
+                <span class="info-icon" data-tip="Temperatura de cor manual em Kelvin (mais baixo = mais avermelhado, mais alto = mais azulado). Só tem efeito com o automático desligado. Como a captura em si mede intensidade por banda (não cor), esse ajuste afeta mais o preview colorido do que o dado espectral.">?</span>
+              </label>
+              <input type="range" id="cam-white_balance_temperature" min="2800" max="6500" step="1"
+                     value="{{ cam.white_balance_temperature }}" {% if cam.white_balance_automatic %}disabled{% endif %}
+                     oninput="onCam('white_balance_temperature', this.value)">
+              <span class="cam-val" id="cam-white_balance_temperature-val">{{ cam.white_balance_temperature }}</span>
             </div>
           </div>
-          <p class="illum-note" style="margin-top:0.7rem;">Ligue o stream: Espacial usa um QR de tamanho conhecido; Reflectância 100/0 são as referências branca/escura.</p>
-        </div>
 
-        <!-- Calibração de reflectância -->
+          <div class="cam-group">
+            <h3>Cor / Imagem</h3>
+            <div class="cam-row"><label for="cam-brightness">Brilho
+                <span class="info-icon" data-tip="Desloca todos os pixels pra cima ou pra baixo igualmente. Aumentar clareia a imagem toda; diminuir escurece. Em excesso pode estourar ou afundar detalhes reais — prefira ajustar a intensidade do LED ou a exposição antes deste.">?</span></label>
+              <input type="range" id="cam-brightness" min="-64" max="64" value="{{ cam.brightness }}" oninput="onCam('brightness', this.value)">
+              <span class="cam-val" id="cam-brightness-val">{{ cam.brightness }}</span></div>
+            <div class="cam-row"><label for="cam-contrast">Contraste
+                <span class="info-icon" data-tip="Aumenta a diferença entre áreas claras e escuras. Contraste alto realça bordas, mas pode estourar ou afundar valores nos extremos — afeta a precisão da média calculada dentro de um ROI.">?</span></label>
+              <input type="range" id="cam-contrast" min="0" max="64" value="{{ cam.contrast }}" oninput="onCam('contrast', this.value)">
+              <span class="cam-val" id="cam-contrast-val">{{ cam.contrast }}</span></div>
+            <div class="cam-row"><label for="cam-saturation">Saturação
+                <span class="info-icon" data-tip="Intensidade das cores no preview. Como cada banda é capturada com um LED monocromático, isso importa mais pra visualização (ex.: o RGB artificial da galeria) do que pro dado espectral medido.">?</span></label>
+              <input type="range" id="cam-saturation" min="0" max="128" value="{{ cam.saturation }}" oninput="onCam('saturation', this.value)">
+              <span class="cam-val" id="cam-saturation-val">{{ cam.saturation }}</span></div>
+            <div class="cam-row"><label for="cam-hue">Matiz
+                <span class="info-icon" data-tip="Gira a paleta de cores do preview. Não tem efeito real sobre a intensidade capturada por banda — é só cosmético pra visualização.">?</span></label>
+              <input type="range" id="cam-hue" min="-40" max="40" value="{{ cam.hue }}" oninput="onCam('hue', this.value)">
+              <span class="cam-val" id="cam-hue-val">{{ cam.hue }}</span></div>
+            <div class="cam-row"><label for="cam-gamma">Gama
+                <span class="info-icon" data-tip="Curva de resposta entre a luz captada e o valor exibido do pixel (não é linear como brilho/contraste). Mudar esse valor depois de uma calibração de reflectância distorce a relação entre luz real e valor medido — cuidado se já calibrou.">?</span></label>
+              <input type="range" id="cam-gamma" min="72" max="500" value="{{ cam.gamma }}" oninput="onCam('gamma', this.value)">
+              <span class="cam-val" id="cam-gamma-val">{{ cam.gamma }}</span></div>
+            <div class="cam-row"><label for="cam-sharpness">Nitidez
+                <span class="info-icon" data-tip="Realça bordas e detalhes finos artificialmente. Pode criar halos/artefatos ao redor de bordas de alto contraste — geralmente é melhor manter baixo pra medições quantitativas, já que não é uma característica real da amostra.">?</span></label>
+              <input type="range" id="cam-sharpness" min="0" max="6" value="{{ cam.sharpness }}" oninput="onCam('sharpness', this.value)">
+              <span class="cam-val" id="cam-sharpness-val">{{ cam.sharpness }}</span></div>
+          </div>
+
+          <div class="cam-group">
+            <h3>Sensor</h3>
+            <div class="cam-row"><label for="cam-gain">Ganho
+                <span class="info-icon" data-tip="Amplifica eletronicamente o sinal do sensor, como o 'ISO' de uma câmera fotográfica. Ajuda em pouca luz, mas aumenta o ruído — pixels ficam menos consistentes entre capturas repetidas da mesma amostra.">?</span></label>
+              <input type="range" id="cam-gain" min="0" max="100" value="{{ cam.gain }}" oninput="onCam('gain', this.value)">
+              <span class="cam-val" id="cam-gain-val">{{ cam.gain }}</span></div>
+            <div class="cam-row"><label for="cam-backlight_compensation">Contraluz
+                <span class="info-icon" data-tip="Compensa quando o fundo está bem mais claro que o objeto principal, evitando que a amostra fique escura demais. Como o fundo aqui é sempre escuro (caixa fechada), normalmente não faz diferença — pode até atrapalhar se ficar ligado à toa.">?</span></label>
+              <input type="range" id="cam-backlight_compensation" min="0" max="2" value="{{ cam.backlight_compensation }}" oninput="onCam('backlight_compensation', this.value)">
+              <span class="cam-val" id="cam-backlight_compensation-val">{{ cam.backlight_compensation }}</span></div>
+            <div class="cam-row cam-row-select">
+              <label for="cam-power_line_frequency">Anti-flicker
+                <span class="info-icon" data-tip="Sincroniza a exposição com a frequência da rede elétrica (50/60Hz) pra evitar listras de cintilação sob luz artificial ambiente. Como a iluminação aqui é por LED próprio controlado pelo sistema, normalmente não muda nada — mas pode ajudar se entrar luz externa na caixa.">?</span>
+              </label>
+              <select class="cam-select" id="cam-power_line_frequency" onchange="onCam('power_line_frequency', this.value)">
+                <option value="0" {% if cam.power_line_frequency == 0 %}selected{% endif %}>Desligado</option>
+                <option value="1" {% if cam.power_line_frequency == 1 %}selected{% endif %}>50 Hz</option>
+                <option value="2" {% if cam.power_line_frequency == 2 %}selected{% endif %}>60 Hz</option>
+              </select>
+            </div>
+          </div>
+
+        </div><!-- /cam-groups -->
+
+        <div class="cam-foot">
+          <button class="btn btn-primary" onclick="camSaveAll()">Salvar controles</button>
+          <button class="btn" onclick="camReset()">Restaurar padrão</button>
+          <span class="cam-status" id="cam-status"></span>
+        </div>
+      </div>
+
+      <!-- LINHA 3: Câmera / Stream + Iluminação, no mesmo card -- a stream
+           mantém o tamanho de sempre (max-width 640px), a iluminação ocupa o
+           espaço ao lado. -->
+      <div class="card">
+        <div class="cam-illum-row">
+
+          <div class="cam-illum-stream">
+            <h2>Câmera</h2>
+            <div class="stream-wrap">
+              <img id="stream" alt="Camera Stream" data-src="{% url 'video_feed' %}">
+              <span class="placeholder" id="stream-ph">stream desligado</span>
+            </div>
+            <button class="btn" id="streamBtn" onclick="toggleStream()">Start Stream</button>
+            <p class="illum-note" style="margin-top:0.7rem;">Ligue o stream pra habilitar as calibrações e ver o efeito dos controles acima ao vivo.</p>
+          </div>
+
+          <div class="cam-illum-lights">
+            <h2>Iluminação (intensidade e exposição por banda)
+              <span class="info-icon" data-tip="Tempo de exposição MANUAL dessa banda (unidade 100µs, ex.: 157 = ~15,7ms). Bandas com LED/sensor mais fraco ou mais forte raramente cabem numa exposição única sem uma saturar e outra ficar escura — ajuste cada uma pra usar quase toda a faixa 0-255 sem estourar. Usado de verdade nas capturas (calibração 100%/0% e aquisição de dados), não só no preview.">?</span>
+            </h2>
+            <div class="band-auto-row">
+              <label class="cam-toggle" id="band-auto-toggle">
+                <input type="checkbox" id="cam-auto_exposure" {% if cam.auto_exposure %}checked{% endif %}
+                       onchange="onCamBool('auto_exposure', this.checked)">
+                Exposição automática (ignora os tempos por banda abaixo)
+                <span class="info-icon" data-tip="Quando ligado, TODAS as capturas (calibração 100%/0% e aquisição de dados) ignoram o tempo de exposição configurado em cada banda e deixam a câmera decidir sozinha, banda a banda. Útil pra explorar rápido, mas o brilho pode variar entre bandas e entre capturas — prejudica a comparação de reflectância. Desligue e ajuste cada banda manualmente antes de calibrar de verdade.">?</span>
+              </label>
+            </div>
+            {% for b in bands %}
+            <div class="band-row" data-nm="{{ b.nm }}" style="--c: {{ b.color }}">
+              <span class="band-dot"></span>
+              <span class="band-name">{{ b.nm }} nm</span>
+              <button class="band-toggle" onclick="toggleBand('{{ b.nm }}')">OFF</button>
+              <input type="range" class="band-slider" min="0" max="255" value="{{ b.intensity }}"
+                     oninput="onBand('{{ b.nm }}', this.value)">
+              <span class="band-pct">0%</span>
+              <input type="number" class="band-exposure" min="1" max="5000" step="1"
+                     value="{{ b.exposure_time_absolute }}" title="Exposição manual (100µs)"
+                     {% if cam.auto_exposure %}disabled{% endif %}>
+              <span class="band-timer"></span>
+              <button class="btn btn-primary band-save" onclick="salvarBanda('{{ b.nm }}')">Salvar</button>
+            </div>
+            {% endfor %}
+            <div class="illum-foot">
+              <span class="illum-note">O toggle acende a banda; um contador de 5s apaga sozinho. Salve cada banda no seu botão.</span>
+              <button class="btn" onclick="apagarTodos()">Apagar todos</button>
+            </div>
+          </div>
+
+        </div><!-- /cam-illum-row -->
+      </div>
+
+      <!-- LINHA 4: Calibração 100% | Calibração 0% | Calibração espacial --
+           por ultimo de proposito: sao os passos finais, feitos DEPOIS de
+           ajustar filtros/camera/iluminacao acima -- mudar qualquer um deles
+           invalida a calibracao de reflectancia (badge "desatualizada" abaixo,
+           ver views.parameterization -> refl_stale/refl0_stale). -->
+      {% if refl_stale or refl0_stale %}
+      <div class="flash-msg">
+        ⚠️ Os parâmetros de câmera ou iluminação mudaram depois da última calibração de reflectância — refaça a(s) calibração(ões) marcada(s) abaixo antes de adquirir dados.
+      </div>
+      {% endif %}
+      <div class="row3">
+
+        <!-- Calibração 100% -->
         <div class="card">
-          <h2>Calibração de reflectância (100%)</h2>
+          <h2>Calibração 100%{% if refl_stale %}<span class="stale-badge" title="Câmera ou iluminação mudaram depois dessa calibração">⚠ desatualizada</span>{% endif %}</h2>
           <div class="refl-imgwrap" id="refl-wrap">
             <img id="refl-img" alt="Referência 100%"
                  {% if refl and refl.image %}src="{{ refl.image.url }}" style="display:block"{% else %}style="display:none"{% endif %}>
             <div id="refl-box" class="refl-box"></div>
             <span class="placeholder" id="refl-ph"
-                  style="{% if refl and refl.image %}display:none{% endif %}">use "Calibração Reflectância 100" com o stream ligado, depois arraste um retângulo sobre a referência branca</span>
+                  style="{% if refl and refl.image %}display:none{% endif %}">ligue o stream, depois use o botão abaixo</span>
+          </div>
+          <button class="btn needs-stream" onclick="refCal(this)" disabled>Calibração Reflectância 100</button>
+          <div class="cap-progress" id="cap-progress-refl">
+            <div class="cap-progress-bar"><div class="cap-progress-fill" id="cap-progress-refl-fill"></div></div>
+            <div class="cap-progress-label" id="cap-progress-refl-label"></div>
           </div>
           <div id="refl-chart" class="refl-chart"></div>
           <div id="refl-result" class="refl-means">{% if refl %}{% for nm, v in refl.means.items %}{{ nm }}nm: {{ v }}{% if not forloop.last %} · {% endif %}{% endfor %}{% else %}Depois da captura, arraste um retângulo sobre a região branca de referência.{% endif %}</div>
@@ -325,28 +504,40 @@
           <div id="refl-tip" class="refl-tip"></div>
         </div>
 
-      </div><!-- /row3 -->
+        <!-- Calibração 0% -->
+        <div class="card">
+          <h2>Calibração 0%{% if refl0_stale %}<span class="stale-badge" title="Câmera ou iluminação mudaram depois dessa calibração">⚠ desatualizada</span>{% endif %}</h2>
+          <div class="cal-imgwrap">
+            <img id="refl0-img" alt="Referência 0%"
+                 {% if refl0 and refl0.image %}src="{{ refl0.image.url }}" style="display:block"{% else %}style="display:none"{% endif %}>
+            <span class="placeholder" id="refl0-ph"
+                  style="{% if refl0 and refl0.image %}display:none{% endif %}">ligue o stream, depois use o botão abaixo (todos os LEDs apagados)</span>
+          </div>
+          <button class="btn needs-stream" onclick="refCalZero(this)" disabled>Calibração Reflectância 0</button>
+          <div id="refl0-chart" class="refl-chart"></div>
+          <div id="refl0-result" class="refl-means">{% if refl0 %}{% for nm, v in refl0.means.items %}{{ nm }}nm: {{ v }}{% if not forloop.last %} · {% endif %}{% endfor %}{% else %}Clique no botão acima com todos os LEDs apagados.{% endif %}</div>
+          {% if refl0 %}{{ refl0.means|json_script:"refl0-means-data" }}{% endif %}
+        </div>
 
-      <!-- LINHA 3: Iluminação (largura cheia) -->
-      <div class="card">
-        <h2>Iluminação (intensidade por banda)</h2>
-        {% for b in bands %}
-        <div class="band-row" data-nm="{{ b.nm }}" style="--c: {{ b.color }}">
-          <span class="band-dot"></span>
-          <span class="band-name">{{ b.nm }} nm</span>
-          <button class="band-toggle" onclick="toggleBand('{{ b.nm }}')">OFF</button>
-          <input type="range" class="band-slider" min="0" max="255" value="{{ b.intensity }}"
-                 oninput="onBand('{{ b.nm }}', this.value)">
-          <span class="band-pct">0%</span>
-          <span class="band-timer"></span>
-          <button class="btn btn-primary band-save" onclick="salvarBanda('{{ b.nm }}')">Salvar</button>
+        <!-- Calibração espacial -->
+        <div class="card">
+          <h2>Calibração espacial</h2>
+          <div class="geo-imgwrap" id="geo-wrap">
+            <img id="cal-img" alt="Imagem de calibração"
+                 {% if cal and cal.image %}src="{{ cal.image.url }}"{% endif %}
+                 style="{% if not cal or not cal.image %}display:none{% endif %}">
+            <svg class="geo-quad-svg" id="geo-quad-svg" viewBox="0 0 1280 800" preserveAspectRatio="none">
+              <polygon id="geo-quad" points=""></polygon>
+            </svg>
+            <span class="placeholder" id="cal-ph"
+                  style="{% if cal and cal.image %}display:none{% endif %}">sem calibração ainda</span>
+          </div>
+          <button class="btn btn-primary needs-stream" id="geoBtn" onclick="geoFrame()" disabled>Calibração Espacial</button>
+          <div id="geo-result" class="cal-value">{% if cal %}{{ cal.px_per_mm|floatformat:3 }} px/mm · {{ cal.mm_per_pixel|floatformat:5 }} mm/px · QR {{ cal.qr_mm|floatformat:0 }}mm = {{ cal.qr_px|floatformat:0 }}px{% endif %}</div>
+          {% if cal %}{{ cal.qr_points|json_script:"geo-points-data" }}{% endif %}
         </div>
-        {% endfor %}
-        <div class="illum-foot">
-          <span class="illum-note">O toggle acende a banda; um contador de 5s apaga sozinho. Salve cada banda no seu botão.</span>
-          <button class="btn" onclick="apagarTodos()">Apagar todos</button>
-        </div>
-      </div>
+
+      </div><!-- /row3 -->
 
     </div><!-- /page-body -->
   </main>
@@ -365,8 +556,11 @@ const URLS = {
   geoFrame: "{% url 'param_geo_frame' %}",
   reflCapture: "{% url 'param_reflectance_capture' %}",
   reflCompute: "{% url 'param_reflectance_compute' %}",
+  reflZero: "{% url 'param_reflectance_zero' %}",
   save:     "{% url 'param_save' %}",
   streamStop: "{% url 'video_feed_stop' %}",
+  camSave:  "{% url 'param_camera_save' %}",
+  camReset: "{% url 'param_camera_reset' %}",
 };
 function api(url, data) {
   return fetch(url, { method: 'POST', headers: { 'X-CSRFToken': CSRF },
@@ -390,9 +584,15 @@ function updateMotor(m) {
   pill.classList.toggle('on', m.limit);
   document.getElementById('limit-txt').textContent = m.limit ? 'Fim de curso acionado!' : 'Fim de curso livre';
 }
+function setJogBusy(b) {
+  document.getElementById('jog-ccw').disabled = b;
+  document.getElementById('jog-cw').disabled = b;
+}
 function jog(dir) {
   const steps = document.getElementById('jog-steps').value || 5;
-  api(URLS.motor, { dir, steps }).then(updateMotor);
+  setJogBusy(true);
+  api(URLS.motor, { dir, steps }).then(updateMotor)
+    .finally(() => setJogBusy(false));
 }
 function salvarFiltro(btn) {
   const tr = btn.closest('tr');
@@ -450,6 +650,62 @@ async function streamOff() {
   return ok;
 }
 async function toggleStream() { if (!streamStopping) { isStreaming() ? await streamOff() : streamOn(); } }
+
+/* ── Controles V4L2/UVC da câmera ── */
+const CAM_FIELDS_INT = ["brightness", "contrast", "saturation", "hue", "gamma", "gain",
+                         "sharpness", "backlight_compensation", "power_line_frequency",
+                         "white_balance_temperature"];
+const CAM_FIELDS_BOOL = ["white_balance_automatic", "auto_exposure", "exposure_dynamic_framerate"];
+
+function camCollect() {
+  const values = {};
+  CAM_FIELDS_INT.forEach(f => { const el = document.getElementById('cam-' + f); if (el) values[f] = Number(el.value); });
+  CAM_FIELDS_BOOL.forEach(f => { const el = document.getElementById('cam-' + f); if (el) values[f] = el.checked; });
+  return values;
+}
+let camSaveDebounce = null;
+function camSave(immediate) {
+  const send = () => {
+    apiJSON(URLS.camSave, camCollect()).then(d => {
+      document.getElementById('cam-status').textContent = d.ok
+        ? 'Aplicado na câmera ✓' : ('Falha ao aplicar: ' + (d.error || 'erro desconhecido'));
+    }).catch(() => { document.getElementById('cam-status').textContent = 'Erro ao aplicar'; });
+  };
+  clearTimeout(camSaveDebounce);
+  if (immediate) send(); else camSaveDebounce = setTimeout(send, 250);
+}
+function onCam(field, val) {
+  const valEl = document.getElementById('cam-' + field + '-val');
+  if (valEl) valEl.textContent = val;
+  camSave(false);
+}
+function onCamBool(field, checked) {
+  if (field === 'auto_exposure') {
+    document.querySelectorAll('.band-exposure').forEach(el => el.disabled = checked);
+  }
+  if (field === 'white_balance_automatic') document.getElementById('cam-white_balance_temperature').disabled = checked;
+  camSave(true);
+}
+function camSaveAll() { camSave(true); }
+function camReset() {
+  api(URLS.camReset).then(d => {
+    if (!d.ok) { toast(d.error || 'Falha ao restaurar'); return; }
+    const s = d.settings;
+    CAM_FIELDS_INT.forEach(f => {
+      const el = document.getElementById('cam-' + f); if (!el) return;
+      el.value = s[f];
+      const v = document.getElementById('cam-' + f + '-val'); if (v) v.textContent = s[f];
+    });
+    CAM_FIELDS_BOOL.forEach(f => {
+      const el = document.getElementById('cam-' + f); if (el) el.checked = s[f];
+    });
+    document.querySelectorAll('.band-exposure').forEach(el => el.disabled = s.auto_exposure);
+    document.getElementById('cam-white_balance_temperature').disabled = s.white_balance_automatic;
+    document.getElementById('cam-status').textContent = 'Restaurado pro padrão de fábrica ✓';
+    toast('Controles da câmera restaurados ✓');
+  }).catch(() => toast('Erro ao restaurar'));
+}
+
 /* ── Calibração de reflectância 100% ── */
 let reflSession = null;
 // Bbox (em pixels da imagem original) da ultima selecao -- fica ativa entre
@@ -470,9 +726,63 @@ const BAND_META = Array.from(document.querySelectorAll('.band-row')).map(row => 
   color: (row.style.getPropertyValue('--c') || '#888').trim(),
 }));
 
+/* ── Barra de progresso da captura de reflectância 100% (estimada no cliente) ──
+   Mesma logica de data_acquisition.html: a captura e sincrona no backend,
+   LED_STABILIZE_SECONDS por banda + ~1.5s de LED apagado -- sem endpoint de
+   progresso real, so um timer que trava em 97% ate a resposta chegar. */
+const LED_STABILIZE_SECONDS = {{ led_stabilize_seconds }};
+const CAPTURE_OFF_SECONDS = 1.5;
+const PER_BAND_SECONDS = LED_STABILIZE_SECONDS + CAPTURE_OFF_SECONDS;
+let capProgressTimer = null;
+
+function startCaptureProgress(bandsMeta) {
+  const wrap = document.getElementById('cap-progress-refl');
+  const fill = document.getElementById('cap-progress-refl-fill');
+  const label = document.getElementById('cap-progress-refl-label');
+  const total = bandsMeta.length;
+  const totalSeconds = total * PER_BAND_SECONDS;
+  const start = Date.now();
+  wrap.style.display = 'block';
+  fill.style.width = '0%';
+  label.textContent = `Capturando ${bandsMeta[0].nm}nm… (1/${total})`;
+  clearInterval(capProgressTimer);
+  capProgressTimer = setInterval(() => {
+    const elapsed = (Date.now() - start) / 1000;
+    const idx = Math.min(total, Math.floor(elapsed / PER_BAND_SECONDS) + 1);
+    const pct = Math.min(97, (elapsed / totalSeconds) * 100);
+    fill.style.width = pct.toFixed(1) + '%';
+    label.textContent = `Capturando ${bandsMeta[idx - 1].nm}nm… (${idx}/${total})`;
+  }, 200);
+}
+function finishCaptureProgress(ok) {
+  clearInterval(capProgressTimer); capProgressTimer = null;
+  const wrap = document.getElementById('cap-progress-refl');
+  const fill = document.getElementById('cap-progress-refl-fill');
+  const label = document.getElementById('cap-progress-refl-label');
+  fill.style.width = '100%';
+  label.textContent = ok ? 'Concluído ✓' : 'Interrompido';
+  setTimeout(() => { wrap.style.display = 'none'; fill.style.width = '0%'; }, ok ? 400 : 1000);
+}
+
 function whenImgReady(img, cb) {
   if (img.complete && img.naturalWidth) cb();
   else img.addEventListener('load', cb, { once: true });
+}
+
+/* ── Quadrilátero do QR na calibração espacial ──
+   O viewBox do SVG e ajustado pro tamanho real da imagem (em pixels) -- os
+   pontos entram direto em pixels, sem conta nenhuma, e o SVG escala sozinho
+   com o tamanho renderizado (sem precisar recalcular em cada resize).
+   vector-effect:non-scaling-stroke (ver CSS) mantem o traço fino e correto
+   mesmo com esse viewBox grande (sem isso, um stroke em "unidades" desse
+   viewBox ficaria enorme -- foi exatamente o bug da primeira versão). */
+function drawGeoQuad(points, width, height) {
+  const svg = document.getElementById('geo-quad-svg');
+  const poly = document.getElementById('geo-quad');
+  if (!points || !points.length || !width || !height) { poly.style.display = 'none'; return; }
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  poly.setAttribute('points', points.map(([x, y]) => `${x},${y}`).join(' '));
+  poly.style.display = 'block';
 }
 
 function drawReflBox() {
@@ -494,30 +804,32 @@ function reflBarPath(x, y, w, h, r) {
        + `L${x + w - r},${y} Q${x + w},${y} ${x + w},${y + r} L${x + w},${y + h} Z`;
 }
 
-function renderReflChart(means) {
-  const el = document.getElementById('refl-chart');
+function renderReflChart(means, chartId) {
+  const el = document.getElementById(chartId || 'refl-chart');
   const bands = BAND_META.filter(b => means[b.nm] !== undefined);
   if (!bands.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
 
   const W = 560, H = 170, padL = 32, padR = 8, padT = 10, padB = 20;
   const plotW = W - padL - padR, plotH = H - padT - padB;
-  const yMax = 255;
+  const FULL_SCALE = 255;  // sensor de 8 bits -- 255 = 100%
+  const toPct = v => (v / FULL_SCALE) * 100;
+  const yMax = 100;
   const yToPx = v => padT + plotH - (Math.min(v, yMax) / yMax) * plotH;
   const slot = plotW / bands.length;
   const barW = Math.min(24, slot * 0.55);
 
-  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Média de intensidade por banda (0-255)">`;
-  [0, 50, 100, 150, 200, 250].forEach(t => {
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Média de intensidade por banda (% da escala do sensor)">`;
+  [0, 20, 40, 60, 80, 100].forEach(t => {
     const y = yToPx(t);
     svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--line)" stroke-width="1"/>`;
-    svg += `<text x="${padL - 5}" y="${y + 3}" text-anchor="end" font-size="9" fill="var(--muted2)">${t}</text>`;
+    svg += `<text x="${padL - 5}" y="${y + 3}" text-anchor="end" font-size="9" fill="var(--muted2)">${t}%</text>`;
   });
   bands.forEach((b, i) => {
-    const v = means[b.nm];
+    const pct = toPct(means[b.nm]);
     const cx = padL + slot * i + slot / 2;
-    const yTop = yToPx(v);
+    const yTop = yToPx(pct);
     const h = (padT + plotH) - yTop;
-    svg += `<path class="refl-bar" data-nm="${b.nm}" data-val="${v}" tabindex="0"
+    svg += `<path class="refl-bar" data-nm="${b.nm}" data-val="${pct.toFixed(1)}" tabindex="0"
              d="${reflBarPath(cx - barW / 2, yTop, barW, h, 4)}" fill="${b.color}"></path>`;
     svg += `<text x="${cx}" y="${H - 6}" text-anchor="middle" font-size="9" fill="var(--muted)">${b.nm}</text>`;
   });
@@ -528,7 +840,7 @@ function renderReflChart(means) {
   const tip = document.getElementById('refl-tip');
   el.querySelectorAll('.refl-bar').forEach(bar => {
     const show = (clientX, clientY) => {
-      tip.textContent = `${bar.dataset.nm}nm: ${bar.dataset.val}`;
+      tip.textContent = `${bar.dataset.nm}nm: ${bar.dataset.val}%`;
       tip.style.left = (clientX + 12) + 'px';
       tip.style.top = (clientY - 28) + 'px';
       tip.classList.add('show');
@@ -558,8 +870,7 @@ function applyReflBox(box) {
     .catch(err => toast('Erro ao calcular: ' + err.message));
 }
 
-async function refCal(level, btn) {
-  if (level !== 100) { toast('Calibração de reflectância 0 — a implementar'); return; }
+async function refCal(btn) {
   const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Capturando…';
   const wasStreaming = isStreaming();
   if (wasStreaming) {
@@ -567,7 +878,9 @@ async function refCal(level, btn) {
     if (!(await streamOff())) { btn.disabled = false; btn.textContent = orig; return; }
   }
   try {
+    startCaptureProgress(BAND_META);
     const d = await api(URLS.reflCapture);
+    finishCaptureProgress(!!d.ok);
     if (!d.ok) { toast(d.error || 'Falha na captura'); return; }
     reflSession = d.session;
     const img = document.getElementById('refl-img');
@@ -587,12 +900,39 @@ async function refCal(level, btn) {
       }
     }, { once: true });
     img.src = d.image_data;
-    toast('Fotos capturadas ✓ (' + (d.folder || 'media/reflectance/') + ') — selecione a região 100%');
+    toast('Fotos capturadas ✓ (' + (d.folder || 'reflectance_parametrization/') + ') — selecione a região 100%');
   } catch (e) {
+    finishCaptureProgress(false);
     toast('Erro na captura');
   } finally {
     btn.disabled = false; btn.textContent = orig;
     if (wasStreaming) streamOn();   // religa o stream
+  }
+}
+
+/* ── Calibração de reflectância 0% (referência escura) ── */
+async function refCalZero(btn) {
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Capturando…';
+  const wasStreaming = isStreaming();
+  if (wasStreaming) {
+    if (!(await streamOff())) { btn.disabled = false; btn.textContent = orig; return; }
+  }
+  try {
+    const d = await api(URLS.reflZero);
+    if (!d.ok) { toast(d.error || 'Falha na captura'); return; }
+    const img = document.getElementById('refl0-img');
+    img.style.display = 'block';
+    document.getElementById('refl0-ph').style.display = 'none';
+    img.src = d.image_data;
+    renderReflChart(d.means, 'refl0-chart');
+    document.getElementById('refl0-result').textContent =
+      Object.entries(d.means).map(([nm, v]) => `${nm}nm: ${v}`).join(' · ');
+    toast('Calibração de reflectância 0% salva ✓');
+  } catch (e) {
+    toast('Erro na captura');
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+    if (wasStreaming) streamOn();
   }
 }
 
@@ -653,31 +993,50 @@ async function refCal(level, btn) {
 whenImgReady(document.getElementById('refl-img'), drawReflBox);
 renderReflChart(JSON.parse(document.getElementById('refl-means-data').textContent));
 {% endif %}
-function geoFrame() {
+{% if refl0 %}
+renderReflChart(JSON.parse(document.getElementById('refl0-means-data').textContent), 'refl0-chart');
+{% endif %}
+{% if cal and cal.qr_points %}
+whenImgReady(document.getElementById('cal-img'), () => {
+  const img = document.getElementById('cal-img');
+  const points = JSON.parse(document.getElementById('geo-points-data').textContent);
+  drawGeoQuad(points, img.naturalWidth, img.naturalHeight);
+});
+{% endif %}
+async function geoFrame() {
   const btn = document.getElementById('geoBtn');
   const el = document.getElementById('geo-result');
   const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Capturando…';
-  api(URLS.geoFrame)
-    .then(d => {
-      if (d.ok) {
-        el.style.color = d.tilted ? '#b45309' : 'var(--green)';
-        el.textContent = `${d.px_per_mm} px/mm · ${d.mm_per_pixel} mm/px · QR ${d.qr_mm}mm = ${d.qr_px}px · lados ±${d.deviation_pct}%`
-          + (d.tilted ? '  ⚠ QR inclinado, reposicione' : '');
-        if (d.image_url) {
-          const img = document.getElementById('cal-img');
-          img.src = d.image_url + '?t=' + Date.now();
-          img.style.display = 'block';
-          document.getElementById('cal-ph').style.display = 'none';
-        }
-        toast('Calibração salva ✓');
-      } else {
-        el.style.color = '#b42318';
-        el.textContent = d.error || 'Falha na captura';
-        toast('Falha na calibração');
+  const wasStreaming = isStreaming();
+  if (wasStreaming) {
+    // libera a câmera p/ capturar (1 leitor só); se não conseguir, não arrisca a captura
+    if (!(await streamOff())) { btn.disabled = false; btn.textContent = orig; return; }
+  }
+  try {
+    const d = await api(URLS.geoFrame);
+    if (d.ok) {
+      el.style.color = d.tilted ? '#b45309' : 'var(--green)';
+      el.textContent = `${d.px_per_mm} px/mm · ${d.mm_per_pixel} mm/px · QR ${d.qr_mm}mm = ${d.qr_px}px · lados ±${d.deviation_pct}%`
+        + (d.tilted ? '  ⚠ QR inclinado, reposicione' : '');
+      if (d.image_url) {
+        const img = document.getElementById('cal-img');
+        img.src = d.image_url + '?t=' + Date.now();
+        img.style.display = 'block';
+        document.getElementById('cal-ph').style.display = 'none';
       }
-    })
-    .catch(() => { el.style.color = '#b42318'; el.textContent = 'Erro na captura'; toast('Erro'); })
-    .finally(() => { btn.disabled = false; btn.textContent = orig; });
+      drawGeoQuad(d.points, d.width, d.height);
+      toast('Calibração salva ✓');
+    } else {
+      el.style.color = '#b42318';
+      el.textContent = d.error || 'Falha na captura';
+      toast('Falha na calibração');
+    }
+  } catch (e) {
+    el.style.color = '#b42318'; el.textContent = 'Erro na captura'; toast('Erro');
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+    if (wasStreaming) streamOn();   // religa o stream
+  }
 }
 
 /* ── Iluminação: toggle ON/OFF + contador (auto-off) + preview ── */
@@ -748,8 +1107,15 @@ function apagarTodos() {
 /* ── Salvar ── */
 function salvarBanda(nm) {
   const intensity = bandIntensity(nm);
-  apiJSON(URLS.save, { bands: [{ nm, intensity }] })
-    .then(() => toast(nm + 'nm salvo ✓'))
+  const exposure_time_absolute = Math.max(1, Math.min(5000,
+    Number(bandRow(nm).querySelector('.band-exposure').value) || 157));
+  apiJSON(URLS.save, { bands: [{ nm, intensity, exposure_time_absolute }] })
+    .then(() => {
+      toast(nm + 'nm salvo ✓');
+      // se essa banda ja estiver acesa no preview, reaplica agora (novo
+      // tempo de exposicao passa a valer na stream sem precisar apagar/acender)
+      if (bandPreview[nm]) api(URLS.led, { band: nm, brightness: intensity });
+    })
     .catch(() => toast('Erro ao salvar banda'));
 }
 function toast(msg) {

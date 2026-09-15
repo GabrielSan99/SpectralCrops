@@ -1,0 +1,128 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>(function(){try{var t=localStorage.getItem('spectralcrops-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+  <link rel="icon" type="image/png" href="{% static 'img/SpectralCrops-figure.png' %}">
+  <title>ROIs — {{ project.name }}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f4f6f8; --panel: #ffffff; --panel2: #f7f9fb; --line: #e6e9ee;
+      --ink: #1f2937; --muted: #6b7280; --muted2: #9aa2ad;
+      --blue: #2f66e0; --blue-soft: #eaf0fd; --green: #2f9e5f;
+    }
+    :root[data-theme="dark"] {
+      --bg: #0f1117; --panel: #1a1d27; --panel2: #12151e; --line: #2a2d3a;
+      --ink: #e5e7eb; --muted: #a4abbd; --muted2: #6f7688;
+      --blue: #4f8ef7; --blue-soft: #16233d; --green: #34d399;
+    }
+    body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--ink); transition: background .2s, color .2s; }
+
+    header {
+      background: var(--panel); padding: 12px 20px 12px 56px;
+      display: flex; align-items: center; gap: 14px;
+      border-bottom: 1px solid var(--line);
+      position: sticky; top: 0; z-index: 5;
+    }
+    .back-btn { background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+                padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: .85rem; text-decoration: none; }
+    .back-btn:hover { border-color: var(--blue); color: var(--blue); }
+    header h1 { font-size: 1.05rem; font-weight: 700; flex: 1; }
+    .counter { font-size: .82rem; color: var(--muted); white-space: nowrap; }
+
+    .toolbar { padding: 12px 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+               background: var(--panel2); border-bottom: 1px solid var(--line); }
+    .toolbar input, .toolbar select {
+      padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px;
+      font-size: .85rem; font-family: inherit; background: var(--panel);
+    }
+    .toolbar input { min-width: 200px; }
+
+    .table-wrap { padding: 16px 20px; overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; font-size: .82rem; background: var(--panel); }
+    th, td { padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: left; }
+    th { position: sticky; top: 0; background: var(--panel2); font-weight: 700; color: var(--muted2);
+         text-transform: uppercase; font-size: .68rem; letter-spacing: .05em; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    tr:hover td { background: var(--blue-soft); }
+    .img-link { color: var(--blue); text-decoration: none; }
+    .img-link:hover { text-decoration: underline; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .72rem;
+             font-weight: 600; background: var(--panel2); color: var(--muted); }
+    .badge.refl { background: #e3f6e9; color: #1c7a3d; }
+    :root[data-theme="dark"] .badge.refl { background: #133024; color: #6ee7b7; }
+    .empty { padding: 3rem 1rem; text-align: center; color: var(--muted2); }
+  </style>
+</head>
+<body>
+
+{% include 'partials/sidebar.html' %}
+
+<header>
+  <a class="back-btn" href="{% url 'analysis' %}">← Analysis</a>
+  <h1>📊 Medições por ROI — {{ project.name }}</h1>
+  <span class="counter" id="visible-count">{{ total }} ROI(s)</span>
+</header>
+
+<div class="toolbar">
+  <input type="search" id="search" placeholder="Buscar por imagem ou label..." oninput="filterRows()">
+  <select id="filter-method" onchange="filterRows()">
+    <option value="">Todos os métodos</option>
+    {% for m in methods %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
+  </select>
+</div>
+
+<div class="table-wrap">
+  {% if rows %}
+  <table id="roi-table">
+    <thead>
+      <tr>
+        <th>Imagem</th>
+        <th>Método</th>
+        <th>ROI</th>
+        <th>Label</th>
+        <th>Tipo</th>
+        {% for nm in bands %}<th class="num">{{ nm }}nm</th>{% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr data-image="{{ row.image|lower }}" data-label="{{ row.label|lower }}" data-method="{{ row.method }}">
+        <td><a class="img-link" href="{% url 'annotate_view' row.acq_id %}">{{ row.image }}</a></td>
+        <td>{{ row.method }}</td>
+        <td class="num">{{ row.index }}</td>
+        <td>{{ row.label|default:"—" }}</td>
+        <td><span class="badge {% if row.is_reflectance %}refl{% endif %}">{% if row.is_reflectance %}reflectância %{% else %}bruto 0-255{% endif %}</span></td>
+        {% for v in row.values %}<td class="num">{{ v|default_if_none:"—" }}</td>{% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">
+    Nenhum ROI medido ainda neste projeto.<br>
+    Vá em <a class="img-link" href="{% url 'analysis' %}">Analysis</a>, abra uma amostra, desenhe os ROIs e clique em "📊 Calcular ROIs".
+  </div>
+  {% endif %}
+</div>
+
+<script>
+function filterRows() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const method = document.getElementById('filter-method').value;
+  let visible = 0;
+  document.querySelectorAll('#roi-table tbody tr').forEach(tr => {
+    const matchText = !q || tr.dataset.image.includes(q) || tr.dataset.label.includes(q);
+    const matchMethod = !method || tr.dataset.method === method;
+    const show = matchText && matchMethod;
+    tr.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  document.getElementById('visible-count').textContent = `${visible} ROI(s)`;
+}
+</script>
+</body>
+</html>

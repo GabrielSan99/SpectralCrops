@@ -123,9 +123,11 @@ STATICFILES_DIRS = [
     BASE_DIR / "static",  # ou os caminhos corretos no seu projeto
 ]
 
-# Arquivos enviados/gerados (imagens de calibracao, etc.)
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+# Arquivos enviados/gerados (imagens de calibracao, aquisicoes, etc.) --
+# organizados por: projects/acquisitions/, projects/geometric_parametrization/,
+# projects/reflectance_parametrization/, projects/models/ (upload dos pesos YOLO).
+MEDIA_URL = '/projects/'
+MEDIA_ROOT = BASE_DIR / 'projects'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

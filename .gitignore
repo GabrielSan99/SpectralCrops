@@ -4,4 +4,4 @@ spectral_project/db.sqlite3
 __pycache__/
 *.pyc
 spectral_project/captures_test/
-spectral_project/media/
+spectral_project/projects/

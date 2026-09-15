@@ -4,22 +4,38 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>(function(){try{var t=localStorage.getItem('spectralcrops-theme')||'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
   <title>Painel de Testes — SpectralCrops</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    /* Este painel nasceu escuro (console de diagnostico de hardware) --
+       o claro vira o default "novo" pra bater com o resto do app, mas o
+       escuro (ligado por padrao aqui, ver script acima) reproduz o visual
+       original quase pixel a pixel. */
+    :root {
+      --bg: #f4f6f8; --panel: #ffffff; --panel2: #f7f9fb; --line: #e6e9ee;
+      --ink: #1f2937; --muted: #6b7280; --muted2: #9aa2ad; --blue: #2f66e0;
+      --hover: #eef1f6;
+    }
+    :root[data-theme="dark"] {
+      --bg: #0f1117; --panel: #1a1d27; --panel2: #12151e; --line: #2a2d3a;
+      --ink: #e0e0e0; --muted: #6a7080; --muted2: #888; --blue: #4f8ef7;
+      --hover: #1e2235;
+    }
     body {
       font-family: 'Segoe UI', system-ui, sans-serif;
-      background: #0f1117; color: #e0e0e0;
-      min-height: 100vh; padding: 2rem 1rem;
+      background: var(--bg); color: var(--ink);
+      min-height: 100vh; padding: 2rem 1rem 2rem 4rem;
+      transition: background .2s, color .2s;
     }
     h1 {
       font-size: 1.3rem; font-weight: 400; letter-spacing: 0.15em;
-      text-transform: uppercase; color: #888; text-align: center;
+      text-transform: uppercase; color: var(--muted2); text-align: center;
       margin-bottom: 1.8rem;
     }
     h2 {
       font-size: 0.8rem; font-weight: 600; letter-spacing: 0.12em;
-      text-transform: uppercase; color: #6a7080; margin-bottom: 1.2rem;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 1.2rem;
     }
     .grid {
       display: grid; gap: 1.5rem; max-width: 1100px; margin: 0 auto;
@@ -27,16 +43,16 @@
       align-items: start;
     }
     .card {
-      background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 16px;
-      padding: 1.6rem 1.7rem;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+      padding: 1.6rem 1.7rem; transition: background .2s, border-color .2s;
     }
     button {
-      background: #12151e; color: #e0e0e0; border: 1px solid #2a2d3a;
+      background: var(--panel2); color: var(--ink); border: 1px solid var(--line);
       border-radius: 8px; padding: 8px 14px; font-size: 0.8rem;
       cursor: pointer; transition: background .15s, border-color .15s, transform .1s;
       user-select: none;
     }
-    button:hover { background: #1e2235; border-color: #4f8ef7; }
+    button:hover { background: var(--hover); border-color: var(--blue); }
     button:active { transform: scale(0.97); }
     button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
@@ -47,17 +63,17 @@
     }
     .led-dot {
       width: 14px; height: 14px; border-radius: 50%;
-      background: #2a2d3a; border: 1px solid #333; transition: all .2s;
+      background: var(--line); border: 1px solid var(--line); transition: all .2s;
     }
     .led-row.on .led-dot {
       background: var(--c); border-color: var(--c);
       box-shadow: 0 0 8px var(--c);
     }
-    .led-name { font-size: 0.85rem; color: #cfd3dc; font-variant-numeric: tabular-nums; }
+    .led-name { font-size: 0.85rem; color: var(--ink); font-variant-numeric: tabular-nums; }
     .led-toggle { padding: 5px 0; font-size: 0.72rem; text-align: center; }
-    .led-row.on .led-toggle { border-color: var(--c); color: #fff; }
-    .led-slider { width: 100%; accent-color: #4f8ef7; }
-    .led-pct { font-size: 0.72rem; color: #666; text-align: right;
+    .led-row.on .led-toggle { border-color: var(--c); color: var(--ink); }
+    .led-slider { width: 100%; accent-color: var(--blue); }
+    .led-pct { font-size: 0.72rem; color: var(--muted2); text-align: right;
                font-variant-numeric: tabular-nums; }
     .led-timer { font-size: 0.78rem; font-weight: 700; color: #f5c518;
                  text-align: center; font-variant-numeric: tabular-nums; }
@@ -65,51 +81,53 @@
 
     /* ── Camera ── */
     .stream-wrap {
-      background: #0b0d13; border: 1px solid #2a2d3a; border-radius: 10px;
-      aspect-ratio: 16 / 10; display: flex; align-items: center;
-      justify-content: center; overflow: hidden; margin-bottom: 1rem;
+      background: #0b0d13; border: 1px solid var(--line); border-radius: 10px;
+      max-width: 640px; aspect-ratio: 16 / 10; display: flex; align-items: center;
+      justify-content: center; overflow: hidden; margin: 0 auto 1rem;
     }
-    .stream-wrap img { width: 100%; height: 100%; object-fit: contain; }
-    .stream-wrap .placeholder { color: #444; font-size: 0.8rem; }
-    .cam-controls { display: flex; flex-wrap: wrap; gap: 8px; }
-    .log { margin-top: 0.9rem; font-size: 0.72rem; color: #5a6070;
+    .stream-wrap img { width: 100%; height: 100%; object-fit: cover; }
+    .stream-wrap .placeholder { color: #6b7280; font-size: 0.8rem; }
+    .cam-controls { display: flex; flex-wrap: wrap; gap: 8px; max-width: 640px; margin-inline: auto; }
+    .log { margin-top: 0.9rem; font-size: 0.72rem; color: var(--muted2);
            min-height: 1.1em; letter-spacing: 0.03em; }
 
     /* ── Motor (do motor_web) ── */
     .motor-body { display: flex; flex-direction: column; align-items: center; gap: 1.6rem; }
     .dial-wrap { position: relative; width: 150px; height: 150px; }
     #dial-svg  { width: 150px; height: 150px; transform: rotate(-90deg); }
-    .dial-track { fill: none; stroke: #2a2d3a; stroke-width: 8; }
-    .dial-arc   { fill: none; stroke: #4f8ef7; stroke-width: 8;
+    .dial-track { fill: none; stroke: var(--line); stroke-width: 8; }
+    .dial-arc   { fill: none; stroke: var(--blue); stroke-width: 8;
                   stroke-linecap: round; transition: stroke-dashoffset .35s ease; }
     .dial-label { position: absolute; inset: 0; display: flex;
                   flex-direction: column; align-items: center; justify-content: center; }
-    .dial-label span:first-child { font-size: 1.8rem; font-weight: 600; color: #fff; line-height: 1; }
-    .dial-label span:last-child  { font-size: 0.7rem; color: #555; letter-spacing: 0.1em; }
+    .dial-label span:first-child { font-size: 1.8rem; font-weight: 600; color: var(--ink); line-height: 1; }
+    .dial-label span:last-child  { font-size: 0.7rem; color: var(--muted2); letter-spacing: 0.1em; }
     .motor-btns { display: flex; gap: 1rem; }
     .motor-btns button {
       width: 96px; height: 96px; border-radius: 50%; border-width: 2px;
       display: flex; flex-direction: column; align-items: center;
       justify-content: center; gap: 5px; font-size: 0.72rem;
     }
-    .motor-btns svg { width: 26px; height: 26px; stroke: #4f8ef7; fill: none;
+    .motor-btns svg { width: 26px; height: 26px; stroke: var(--blue); fill: none;
                       stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
     .limit-section { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-    .limit-label { font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: #555; }
+    .limit-label { font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted2); }
     .led-wrap { display: flex; align-items: center; gap: 10px; }
     #led-svg .led-body  { fill: #1a0000; transition: fill .2s; }
     #led-svg .led-glow  { fill: none; opacity: 0; transition: opacity .2s; }
     #led-svg .led-shine { fill: rgba(255,255,255,0.15); }
-    #led-svg .led-base  { fill: #2a2d3a; }
-    #led-svg .led-legs  { stroke: #444; fill: none; stroke-width: 1.5; }
+    #led-svg .led-base  { fill: var(--line); }
+    #led-svg .led-legs  { stroke: #6b7280; fill: none; stroke-width: 1.5; }
     #led-svg.on .led-body { fill: #ff2222; filter: drop-shadow(0 0 6px #ff0000); }
     #led-svg.on .led-glow { opacity: 1; }
-    .led-status { font-size: 0.8rem; font-weight: 600; color: #333; transition: color .2s; }
+    .led-status { font-size: 0.8rem; font-weight: 600; color: var(--muted2); transition: color .2s; }
     .led-status.on { color: #ff4444; }
-    #btn-reset { font-size: 0.72rem; color: #777; }
+    #btn-reset { font-size: 0.72rem; color: var(--muted2); }
   </style>
 </head>
 <body>
+
+{% include 'partials/sidebar.html' %}
 
 <h1>Painel de Testes — SpectralCrops</h1>
 

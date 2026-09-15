@@ -3,6 +3,7 @@ import time
 import os
 import glob
 import re
+import subprocess
 import cv2
 from PIL import Image
 
@@ -18,20 +19,37 @@ class ArducamCamera:
     HEIGHT = 800
     WARMUP_FRAMES = 5  # descarta os primeiros frames (auto-exposicao estabilizar)
 
-    # Preview do MJPEG (Start Stream): so serve pra enquadrar/posicionar, entao
-    # sai bem menor que a captura real (que continua em WIDTH x HEIGHT cheios).
-    # Full-res a qualidade alta gerava ~40KB/frame (~13Mbps a ~40fps) -- em
-    # Wi-Fi isso satura e o stream vai acumulando atraso. Meia-resolucao cai
-    # pra ~9KB/frame (~3Mbps), bem mais folgado.
-    STREAM_WIDTH = 640
-    STREAM_HEIGHT = 400
-    STREAM_JPEG_QUALITY = 80
+    # Preview do MJPEG (Start Stream). Full-res a qualidade alta gerava
+    # ~40KB/frame (~13Mbps a ~40fps) -- em Wi-Fi isso satura e o stream vai
+    # acumulando atraso; foi corrigido reduzindo a RESOLUCAO (640x400) na
+    # epoca. Agora voltamos pra resolucao cheia (== WIDTH x HEIGHT, a mesma
+    # da captura), mas compensando com qualidade JPEG bem mais baixa, pra
+    # manter o tamanho por frame parecido (~9-12KB) e nao reintroduzir o
+    # travamento. So mexe no tamanho da imagem em si -- se ainda assim
+    # atrasar, o proximo ajuste e baixar STREAM_JPEG_QUALITY mais um pouco.
+    STREAM_WIDTH = WIDTH
+    STREAM_HEIGHT = HEIGHT
+    STREAM_JPEG_QUALITY = 35
 
     # Ganho da camera. 0 = padrao de fabrica (sem ganho extra). Se as fotos
     # ficarem escuras demais no ambiente fechado da caixa, aumente aos poucos
-    # (ex.: 20, 40...). Nao mude o modo de auto_exposure: trocar trava o
-    # streaming nessa camera/driver.
+    # (ex.: 20, 40...).
     GAIN = 0
+
+    # Exposicao manual, so pra grab() com `exposure=` -- o stream/preview
+    # NUNCA muda de modo, so a captura isolada de uma foto. Unidade = 100us
+    # (padrao v4l2/UVC do exposure_time_absolute, confirmado com v4l2-ctl:
+    # min=1 max=5000). O auto-exposure normal fica por volta de 150-160
+    # (~15-16ms); AUTO_EXPOSURE_TEST testa bem mais longo pra reduzir o
+    # brilho de LED necessario (menos estouro/glare nas sementes).
+    #
+    # CUIDADO: e o proprio MODO de auto_exposure (v4l2 auto_exposure:
+    # 3=automatico, 1=manual) que ja travou o streaming dessa camera/driver
+    # antes -- por isso so trocamos dentro de grab(), com o device fechado
+    # antes/depois (nunca com o stream MJPEG ativo), e sempre revertendo pro
+    # automatico logo apos o frame (try/finally), mesmo se algo der errado.
+    V4L2_AUTO_EXPOSURE_AUTO = 3    # "Aperture Priority Mode" (automatico)
+    V4L2_AUTO_EXPOSURE_MANUAL = 1  # "Manual Mode"
 
     def __new__(cls, device_index=0):
         if cls._instance is None:
@@ -125,6 +143,33 @@ class ArducamCamera:
             self.cap.release()
             self.cap = None
 
+    # Controles cujo modo automatico precisa ser aplicado ANTES do valor
+    # manual dependente (senao o driver rejeita o valor -- o controle fica
+    # "inactive" enquanto o automatico correspondente estiver ligado). Como
+    # dict preserva ordem de insercao, quem monta `values` so precisa colocar
+    # esses dois primeiro (ver views.py: _camera_settings_v4l2_dict).
+    AUTO_MODE_CTRLS = ("white_balance_automatic", "auto_exposure")
+
+    def apply_controls(self, values):
+        """Aplica controles V4L2/UVC (brilho, ganho, exposicao manual etc.)
+        direto no driver via v4l2-ctl -- funciona mesmo com a camera aberta
+        por este processo (cv2.VideoCapture): controles nao exigem posse
+        exclusiva do device, so o streaming (VIDIOC_STREAMON) exige.
+        `values`: dict nome_v4l2 -> valor (bool vira 0/1), NA ORDEM que deve
+        ser aplicada. Retorna (ok, mensagem_de_erro)."""
+        if not values:
+            return True, ""
+        ctrl_arg = ",".join(f"{k}={int(v)}" for k, v in values.items())
+        try:
+            result = subprocess.run(
+                ["v4l2-ctl", "-d", f"/dev/video{self.device_index}", f"--set-ctrl={ctrl_arg}"],
+                capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError) as e:
+            return False, str(e)
+        if result.returncode != 0:
+            return False, (result.stderr or result.stdout).strip()
+        return True, ""
+
     def _capture_frame(self):
         """Captura um frame da câmera e retorna o array BGR (ou None)."""
         if not self._ensure_open():
@@ -134,13 +179,121 @@ class ArducamCamera:
             return None
         return frame
 
-    def grab(self):
+    def grab(self, exposure=None):
         """Captura e retorna um frame BGR (ou None), liberando o device depois.
-        Util pra processar (ex.: detectar QR) alem de/ao inves de salvar."""
+        Util pra processar (ex.: detectar QR) alem de/ao inves de salvar.
+
+        Se `exposure` for informado (inteiro, unidade 100us -- ex.: 1000 =
+        100ms), troca pra exposicao MANUAL so pra essa foto e devolve pro
+        automatico logo em seguida, sempre (try/finally), antes de liberar
+        o device. Sem `exposure` (None, o padrao), comportamento identico
+        a antes -- fica no automatico o tempo todo."""
         with ArducamCamera._lock:
-            frame = self._capture_frame()
-            self.release()
+            if not self._ensure_open():
+                return None
+            frame = None
+            try:
+                if exposure is not None:
+                    self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, self.V4L2_AUTO_EXPOSURE_MANUAL)
+                    self.cap.set(cv2.CAP_PROP_EXPOSURE, exposure)
+                    for _ in range(2):
+                        self.cap.read()  # descarta -- exposicao nova leva 1-2 frames pra valer
+                frame = self._capture_frame()
+            finally:
+                if exposure is not None and self.cap is not None:
+                    self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, self.V4L2_AUTO_EXPOSURE_AUTO)
+                self.release()
             return frame
+
+    def capture_stabilized(self, warmup_seconds, exposure=None):
+        """Le e DESCARTA frames por `warmup_seconds` (nao um sleep as cegas)
+        antes de devolver o ultimo frame lido. E o que da tempo de verdade pro
+        auto-exposure/auto-gain da camera convergir -- eles so reagem a
+        frames de verdade sendo lidos (igual no stream continuo), nao a um
+        sleep() com o device fechado. `grab()` sozinho NAO serve pra isso:
+        ele abre, tira UM frame (so ~WARMUP_FRAMES de aquecimento) e fecha --
+        se o LED acabou de acender, a exposicao ainda nao convergiu.
+
+        NAO libera o device no final -- quem chama controla isso (release()),
+        pra encadear varias capturas (ex.: as 8 bandas) sem pagar reabertura +
+        WARMUP_FRAMES do zero a cada banda."""
+        with ArducamCamera._lock:
+            if not self._ensure_open():
+                return None
+            if exposure is not None:
+                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, self.V4L2_AUTO_EXPOSURE_MANUAL)
+                self.cap.set(cv2.CAP_PROP_EXPOSURE, exposure)
+            deadline = time.time() + warmup_seconds
+            frame = None
+            while time.time() < deadline:
+                ret, f = self.cap.read()
+                if ret:
+                    frame = f
+            if frame is None:
+                frame = self._capture_frame()
+            return frame
+
+    # Faixa real do controle exposure_time_absolute (conferida com
+    # v4l2-ctl -d /dev/video0 --list-ctrls-menus, mesma da UI). Uma leitura
+    # fora dessa faixa e tratada como falha (ver capture_stabilized_auto),
+    # nao clampada -- clampar escondia leituras invalidas como se fossem um
+    # valor de verdade (era o que fazia toda banda "convergir" pra 5000).
+    EXPOSURE_MIN, EXPOSURE_MAX = 1, 5000
+
+    def _get_ctrl(self, name):
+        """Le o valor atual de um controle V4L2 direto do driver via
+        v4l2-ctl -- mais confiavel que cv2.VideoCapture.get(CAP_PROP_*):
+        o mapeamento de propriedades do OpenCV pro V4L2 e generico/as vezes
+        incorreto pra controles especificos do driver (foi visto devolvendo
+        valor fora de faixa pro exposure_time_absolute sob auto-exposure,
+        nunca o valor de verdade que a camera convergiu). apply_controls ja
+        usa v4l2-ctl pra ESCREVER; aqui e o mesmo caminho pra LER, por
+        simetria e confianca. Retorna int ou None se falhar."""
+        try:
+            result = subprocess.run(
+                ["v4l2-ctl", "-d", f"/dev/video{self.device_index}", f"--get-ctrl={name}"],
+                capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode != 0:
+            return None
+        m = re.search(r':\s*(-?\d+)\s*$', result.stdout.strip())
+        return int(m.group(1)) if m else None
+
+    def capture_stabilized_auto(self, warmup_seconds):
+        """Igual a capture_stabilized, mas sempre forca exposicao AUTOMATICA e,
+        depois da camera convergir, LE de volta o valor que ela escolheu (via
+        v4l2-ctl --get-ctrl=exposure_time_absolute -- o driver mantem esse
+        controle atualizado com a leitura atual mesmo em modo automatico, so
+        nao aceita ESCRITA nele enquanto auto_exposure estiver ligado). Usado
+        pra "descobrir" o tempo de exposicao ideal de uma banda e depois
+        fixar como manual (ver views.param_band_auto_expose) -- nao serve
+        pra captura de medida em si (exposicao automatica varia quadro a
+        quadro, nao e reproduzivel).
+
+        `warmup_seconds` pode precisar ser maior que o LED_STABILIZE_SECONDS
+        normal: o algoritmo de auto-exposure sobe aos poucos (nao pula direto
+        pro valor final), e uma banda escura pode levar mais tempo pra
+        convergir de verdade.
+
+        Retorna (frame, exposure) -- exposure e None se a leitura falhar ou
+        vier fora da faixa fisica do controle (ver EXPOSURE_MIN/MAX)."""
+        with ArducamCamera._lock:
+            if not self._ensure_open():
+                return None, None
+            self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, self.V4L2_AUTO_EXPOSURE_AUTO)
+            deadline = time.time() + warmup_seconds
+            frame = None
+            while time.time() < deadline:
+                ret, f = self.cap.read()
+                if ret:
+                    frame = f
+            if frame is None:
+                frame = self._capture_frame()
+            raw_exposure = self._get_ctrl("exposure_time_absolute")
+            exposure = (raw_exposure if raw_exposure is not None
+                       and self.EXPOSURE_MIN <= raw_exposure <= self.EXPOSURE_MAX else None)
+            return frame, exposure
 
     def save_frame(self, filename, folder=""):
         with ArducamCamera._lock:
@@ -179,9 +332,12 @@ class ArducamCamera:
                 if stop_event is not None and stop_event.is_set():
                     break
                 if frame is not None:
-                    small = cv2.resize(frame, (self.STREAM_WIDTH, self.STREAM_HEIGHT),
-                                        interpolation=cv2.INTER_AREA)
-                    ret, jpeg = cv2.imencode('.jpg', small,
+                    # so redimensiona se o preview for menor que a captura --
+                    # atualmente sao iguais (resolucao cheia), entao redimensionar seria a-toa
+                    if (self.STREAM_WIDTH, self.STREAM_HEIGHT) != (frame.shape[1], frame.shape[0]):
+                        frame = cv2.resize(frame, (self.STREAM_WIDTH, self.STREAM_HEIGHT),
+                                            interpolation=cv2.INTER_AREA)
+                    ret, jpeg = cv2.imencode('.jpg', frame,
                                               [cv2.IMWRITE_JPEG_QUALITY, self.STREAM_JPEG_QUALITY])
                     if ret:
                         yield (b'--frame\r\n'

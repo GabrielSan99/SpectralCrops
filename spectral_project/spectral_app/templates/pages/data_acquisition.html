@@ -1,0 +1,392 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>(function(){try{var t=localStorage.getItem('spectralcrops-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+  <link rel="icon" type="image/png" href="{% static 'img/SpectralCrops-figure.png' %}">
+  <title>Data Acquisition — SpectralCrops</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f4f6f8; --panel: #ffffff; --panel2: #f7f9fb; --line: #e6e9ee;
+      --ink: #1f2937; --muted: #6b7280; --muted2: #9aa2ad;
+      --blue: #2f66e0; --blue-soft: #eaf0fd; --blue-hover: #2557c4; --green: #2f9e5f;
+      --hover: #f1f3f7;
+    }
+    :root[data-theme="dark"] {
+      --bg: #0f1117; --panel: #1a1d27; --panel2: #12151e; --line: #2a2d3a;
+      --ink: #e5e7eb; --muted: #a4abbd; --muted2: #6f7688;
+      --blue: #4f8ef7; --blue-soft: #16233d; --blue-hover: #6ba2f9; --green: #34d399;
+      --hover: #222739;
+    }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--ink); display: flex; min-height: 100vh;
+      transition: background .2s, color .2s;
+    }
+
+    /* Menu lateral: ver partials/sidebar.html (traz seu proprio CSS) */
+
+    /* Main */
+    .main { flex: 1; padding: 2.2rem 2.6rem 4rem 3.4rem; overflow-y: auto; }
+    .page-head { display: flex; align-items: center; justify-content: space-between;
+                 gap: 1rem; margin-bottom: 1.8rem; flex-wrap: wrap;
+                 max-width: 1200px; margin-inline: auto; }
+    h1 { font-size: 1.7rem; font-weight: 700; letter-spacing: -0.01em; }
+    .sub { color: var(--muted); font-size: 0.95rem; margin-top: 0.25rem; }
+    .project-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--blue-soft);
+                     border: 1px solid #cddcfa; color: var(--blue); padding: 6px 12px; border-radius: 8px;
+                     font-size: 0.85rem; text-decoration: none; white-space: nowrap; }
+    .project-pill:hover { border-color: var(--blue); }
+
+    .btn {
+      border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+      border-radius: 9px; padding: 8px 14px; font-size: 0.85rem; font-weight: 500;
+      cursor: pointer; transition: background .15s, border-color .15s, transform .1s, opacity .15s;
+    }
+    .btn:not(:disabled):hover { background: var(--hover); border-color: var(--blue); }
+    .btn:not(:disabled):active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+    .btn-primary:not(:disabled):hover { background: var(--blue-hover); }
+
+    .main > .card { margin-bottom: 1.4rem; }
+    .page-body { display: flex; flex-direction: column; gap: 1.4rem;
+                 max-width: 1200px; margin-inline: auto; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+            padding: 1.3rem 1.4rem; box-shadow: 0 1px 2px rgba(16,24,40,0.04); }
+    .card h2 { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.1em;
+               text-transform: uppercase; color: var(--muted2); margin-bottom: 1.1rem; }
+    .card > .btn { width: 100%; margin-bottom: 0.7rem; }
+
+    /* Camera -- aspect-ratio 8:5 = 1280x800 (mesma proporcao da camera), sem
+       barra preta de letterbox (altura fixa + object-fit deixava sobra). */
+    .stream-wrap { background: #0b0d13; border: 1px solid var(--line); border-radius: 10px;
+                   width: 100%; max-width: 640px; aspect-ratio: 8 / 5; display: flex; align-items: center; justify-content: center;
+                   overflow: hidden; margin: 0 auto 0.9rem; }
+    .stream-wrap img { width: 100%; height: 100%; object-fit: cover; }
+    .stream-wrap .placeholder { color: #6b7280; font-size: 0.85rem; }
+    #streamBtn, #acqBtn { max-width: 640px; margin-inline: auto; display: block; }
+
+    /* Barra de progresso da captura (8 bandas) -- estimada no cliente, sem
+       endpoint no backend: a rotina de captura e sincrona e previsivel
+       (LED_STABILIZE_SECONDS por banda), entao um timer no JS basta. */
+    .cap-progress { max-width: 640px; margin: 0.7rem auto 0; display: none; }
+    .cap-progress-bar { background: var(--panel2); border: 1px solid var(--line);
+                         border-radius: 999px; height: 8px; overflow: hidden; }
+    .cap-progress-fill { height: 100%; width: 0%; background: var(--blue);
+                          transition: width .25s linear; }
+    .cap-progress-label { font-size: 0.75rem; color: var(--muted); margin-top: 5px;
+                           text-align: center; font-variant-numeric: tabular-nums; }
+
+    /* RGB artificial (660/520/460nm -> R/G/B) -- so pra visualizacao/ROI, hero acima da galeria */
+    .acq-rgb-wrap { max-width: 420px; margin: 0 auto 1rem; }
+    .acq-rgb { background: #0b0d13; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+    .acq-rgb img { display: block; width: 100%; height: auto; }
+    .acq-rgb figcaption { font-size: 0.7rem; color: var(--muted2); text-align: center; padding: 6px 4px; }
+
+    /* Galeria: 8 bandas, cada uma com um par raw + mapa (normalizado) lado a lado -> 16 imagens */
+    .acq-result { font-size: 0.78rem; color: var(--muted2); line-height: 1.6; margin-bottom: 0.9rem; }
+    .acq-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                    gap: 12px; margin-bottom: 0.9rem; }
+    .acq-band-card { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+    .acq-band-card .band-title { font-size: 0.72rem; font-weight: 700; color: var(--muted2);
+                                  text-transform: uppercase; letter-spacing: 0.06em;
+                                  text-align: center; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+    .acq-pair { display: flex; gap: 6px; }
+    .acq-thumb { flex: 1; min-width: 0; background: #0b0d13; border: 1px solid var(--line);
+                 border-radius: 8px; overflow: hidden; }
+    .acq-thumb img { display: block; width: 100%; height: auto; }
+    .acq-thumb .placeholder-sm { color: #6b7280; font-size: 0.65rem; text-align: center; padding: 24px 4px; }
+    .acq-thumb figcaption { font-size: 0.68rem; color: var(--muted2); text-align: center; padding: 4px 2px; }
+    .acq-save-row { display: none; gap: 8px; margin-bottom: 0.9rem; }
+    .acq-save-row input { flex: 1; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+                           font-size: 0.9rem; font-family: inherit; color: var(--ink); }
+
+    /* Toast */
+    #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+             background: var(--ink); color: #fff; padding: 11px 20px; border-radius: 10px;
+             font-size: 0.9rem; opacity: 0; pointer-events: none; transition: all .25s; }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    @media (max-width: 900px) {
+      .main { padding: 1.5rem 1.1rem 4rem 3.4rem; }
+    }
+  </style>
+</head>
+<body>
+
+  {% include 'partials/sidebar.html' %}
+
+  <!-- Main -->
+  <main class="main">
+    <div class="page-head">
+      <div>
+        <h1>Data Acquisition</h1>
+        <p class="sub">Capture as 8 bandas espectrais de uma amostra, normalizadas pela calibração de reflectância.</p>
+      </div>
+      <a class="project-pill" href="{% url 'index' %}" title="Trocar de projeto na Home">📁 {{ project.name }}</a>
+    </div>
+
+    <div class="page-body">
+
+      <div class="card">
+        <h2>Câmera</h2>
+        <div class="stream-wrap">
+          <img id="stream" alt="Camera Stream" data-src="{% url 'video_feed' %}">
+          <span class="placeholder" id="stream-ph">stream desligado</span>
+        </div>
+        <button class="btn" id="streamBtn" onclick="toggleStream()">Start Stream</button>
+        <button class="btn btn-primary needs-stream" id="acqBtn" onclick="acquireData(this)" disabled>Adquirir Dados</button>
+
+        <div class="cap-progress" id="cap-progress">
+          <div class="cap-progress-bar"><div class="cap-progress-fill" id="cap-progress-fill"></div></div>
+          <div class="cap-progress-label" id="cap-progress-label"></div>
+        </div>
+
+        <div id="acq-result" class="acq-result">{% if acq %}{{ acq.name|default:"(sem nome)" }} — {{ acq.created|date:"d/m/Y H:i" }} — {{ acq.roi_measurements.count }} ROI(s) medido(s){% else %}Clique em "Adquirir Dados" pra capturar as 8 bandas.{% endif %}</div>
+
+        <div class="acq-rgb-wrap" id="acq-rgb-wrap" style="{% if not rgb_url %}display:none{% endif %}">
+          <figure class="acq-rgb">
+            <img id="acq-rgb-img" src="{{ rgb_url }}" alt="RGB artificial (660/520/460nm)">
+            <figcaption>RGB artificial (660→R · 520→G · 460→B) — só visualização</figcaption>
+          </figure>
+        </div>
+
+        <div id="acq-gallery" class="acq-gallery">
+          {% for pair in acq_images %}
+          <div class="acq-band-card">
+            <div class="band-title">{{ pair.nm }}nm</div>
+            <div class="acq-pair">
+              <figure class="acq-thumb">
+                <img src="{{ pair.raw_url }}" alt="{{ pair.nm }}nm raw">
+                <figcaption>Raw</figcaption>
+              </figure>
+              <figure class="acq-thumb">
+                {% if pair.norm_url %}
+                <img src="{{ pair.norm_url }}" alt="{{ pair.nm }}nm mapa">
+                {% else %}
+                <div class="placeholder-sm">sem mapa</div>
+                {% endif %}
+                <figcaption>Mapa</figcaption>
+              </figure>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+
+        <div id="acq-save-row" class="acq-save-row">
+          <input type="text" id="acq-name" placeholder="Nome da amostra (obrigatório)" required>
+          <button class="btn btn-primary" id="acqSaveBtn" onclick="saveAcquisition(this)">Salvar</button>
+        </div>
+      </div>
+
+    </div><!-- /page-body -->
+  </main>
+
+  <div id="toast"></div>
+  {{ bands|json_script:"bands-data" }}
+
+<script>
+const CSRF = '{{ csrf_token }}';
+const URLS = {
+  streamStop: "{% url 'video_feed_stop' %}",
+  acqCapture: "{% url 'data_acquisition_capture' %}",
+  acqSave:    "{% url 'data_acquisition_save' %}",
+};
+function api(url, data) {
+  return fetch(url, { method: 'POST', headers: { 'X-CSRFToken': CSRF },
+    body: new URLSearchParams(data || {}) }).then(r => r.json());
+}
+function apiJSON(url, obj) {
+  return fetch(url, { method: 'POST',
+    headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+    body: JSON.stringify(obj) }).then(r => r.json());
+}
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+/* ── Stream ── */
+function isStreaming() { return !!document.getElementById('stream').getAttribute('src'); }
+function setNeedsStream(on) {
+  document.querySelectorAll('.needs-stream').forEach(b => b.disabled = !on);
+}
+function streamOn() {
+  const img = document.getElementById('stream');
+  img.src = img.dataset.src + '?t=' + Date.now(); img.style.display = 'block';
+  document.getElementById('stream-ph').style.display = 'none';
+  document.getElementById('streamBtn').textContent = 'Stop Stream';
+  setNeedsStream(true);
+}
+let streamStopping = false;
+async function streamOff() {
+  if (streamStopping) return false;
+  streamStopping = true;
+  const img = document.getElementById('stream');
+  img.removeAttribute('src'); img.style.display = 'none';
+  document.getElementById('stream-ph').style.display = 'block';
+  const btn = document.getElementById('streamBtn');
+  btn.textContent = 'Parando…'; btn.disabled = true;
+  setNeedsStream(false);
+  let ok = false;
+  try {
+    const d = await api(URLS.streamStop);
+    ok = !!d.ok;
+    if (!ok) toast(d.error || 'A câmera não encerrou o stream a tempo.');
+  } catch (e) {
+    toast('Erro ao parar o stream');
+  } finally {
+    streamStopping = false;
+    btn.textContent = 'Start Stream'; btn.disabled = false;
+  }
+  return ok;
+}
+async function toggleStream() { if (!streamStopping) { isStreaming() ? await streamOff() : streamOn(); } }
+
+/* ── Galeria das 8 bandas ── */
+const BAND_META = JSON.parse(document.getElementById('bands-data').textContent);
+
+/* ── Barra de progresso da captura (estimada no cliente) ──
+   A rotina de captura no backend e sincrona: acende o LED, espera
+   LED_STABILIZE_SECONDS pra estabilizar, tira a foto, apaga e espera ~1.5s
+   antes da proxima banda. Nao ha endpoint de progresso real -- o timer abaixo
+   so estima o andamento com base nesse tempo fixo por banda, e trava em 97%
+   até a resposta de verdade chegar (nunca fecha sozinho). */
+const LED_STABILIZE_SECONDS = {{ led_stabilize_seconds }};
+const CAPTURE_OFF_SECONDS = 1.5;   // mesmo tempo do time.sleep(1.5) entre bandas, no backend
+const PER_BAND_SECONDS = LED_STABILIZE_SECONDS + CAPTURE_OFF_SECONDS;
+let capProgressTimer = null;
+
+function startCaptureProgress(bandsMeta) {
+  const wrap = document.getElementById('cap-progress');
+  const fill = document.getElementById('cap-progress-fill');
+  const label = document.getElementById('cap-progress-label');
+  const total = bandsMeta.length;
+  const totalSeconds = total * PER_BAND_SECONDS;
+  const start = Date.now();
+  wrap.style.display = 'block';
+  fill.style.width = '0%';
+  label.textContent = `Capturando ${bandsMeta[0].nm}nm… (1/${total})`;
+  clearInterval(capProgressTimer);
+  capProgressTimer = setInterval(() => {
+    const elapsed = (Date.now() - start) / 1000;
+    const idx = Math.min(total, Math.floor(elapsed / PER_BAND_SECONDS) + 1);
+    const pct = Math.min(97, (elapsed / totalSeconds) * 100);
+    fill.style.width = pct.toFixed(1) + '%';
+    label.textContent = `Capturando ${bandsMeta[idx - 1].nm}nm… (${idx}/${total})`;
+  }, 200);
+}
+function finishCaptureProgress(ok) {
+  clearInterval(capProgressTimer); capProgressTimer = null;
+  const wrap = document.getElementById('cap-progress');
+  const fill = document.getElementById('cap-progress-fill');
+  const label = document.getElementById('cap-progress-label');
+  fill.style.width = '100%';
+  label.textContent = ok ? 'Concluído ✓' : 'Interrompido';
+  setTimeout(() => { wrap.style.display = 'none'; fill.style.width = '0%'; }, ok ? 400 : 1000);
+}
+
+function makeThumb(src, label, nm) {
+  const fig = document.createElement('figure');
+  fig.className = 'acq-thumb';
+  if (src) {
+    const img = document.createElement('img');
+    img.src = src; img.alt = nm + 'nm ' + label;
+    fig.appendChild(img);
+  } else {
+    const ph = document.createElement('div');
+    ph.className = 'placeholder-sm'; ph.textContent = 'sem mapa';
+    fig.appendChild(ph);
+  }
+  const cap = document.createElement('figcaption');
+  cap.textContent = label;
+  fig.appendChild(cap);
+  return fig;
+}
+
+function renderGallery(images) {
+  const el = document.getElementById('acq-gallery');
+  el.innerHTML = '';
+  BAND_META.forEach(b => {
+    const pair = images[b.nm];
+    if (!pair) return;
+    const card = document.createElement('div');
+    card.className = 'acq-band-card';
+    const title = document.createElement('div');
+    title.className = 'band-title'; title.textContent = b.nm + 'nm';
+    const row = document.createElement('div');
+    row.className = 'acq-pair';
+    row.appendChild(makeThumb(pair.raw, 'Raw', b.nm));
+    row.appendChild(makeThumb(pair.norm, 'Mapa', b.nm));
+    card.appendChild(title); card.appendChild(row);
+    el.appendChild(card);
+  });
+}
+
+/* ── Aquisição ── */
+let acqSession = null;
+
+async function acquireData(btn) {
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Adquirindo…';
+  const wasStreaming = isStreaming();
+  if (wasStreaming) {
+    // libera a câmera p/ capturar (1 leitor só); se não conseguir, não arrisca a aquisição
+    if (!(await streamOff())) { btn.disabled = false; btn.textContent = orig; return; }
+  }
+  try {
+    startCaptureProgress(BAND_META);
+    const d = await api(URLS.acqCapture);
+    finishCaptureProgress(!!d.ok);
+    if (!d.ok) { toast(d.error || 'Falha na aquisição'); return; }
+    acqSession = d.session;
+    renderGallery(d.images);
+    const rgbWrap = document.getElementById('acq-rgb-wrap');
+    if (d.rgb) {
+      document.getElementById('acq-rgb-img').src = d.rgb;
+      rgbWrap.style.display = 'block';
+    } else {
+      rgbWrap.style.display = 'none';
+    }
+    document.getElementById('acq-result').textContent =
+      'Brilho médio por banda (0-255, imagem inteira — só diagnóstico da captura): ' +
+      Object.entries(d.means).map(([nm, v]) => `${nm}nm: ${v}`).join(' · ');
+    document.getElementById('acq-name').value = '';
+    document.getElementById('acq-save-row').style.display = 'flex';
+    toast(d.has_calibration ? 'Fotos capturadas ✓ — dê um nome e salve'
+                             : 'Fotos capturadas ✓ (sem calibração) — dê um nome e salve');
+  } catch (e) {
+    finishCaptureProgress(false);
+    toast('Erro na aquisição');
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+    if (wasStreaming) streamOn();   // religa o stream
+  }
+}
+
+async function saveAcquisition(btn) {
+  if (!acqSession) { toast('Nada pra salvar — adquira os dados primeiro'); return; }
+  const name = document.getElementById('acq-name').value.trim();
+  if (!name) { toast('Dê um nome pra amostra antes de salvar'); document.getElementById('acq-name').focus(); return; }
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    const d = await apiJSON(URLS.acqSave, { session: acqSession, name });
+    if (!d.ok) { toast(d.error || 'Falha ao salvar'); return; }
+    toast('Salvo ✓' + (d.name ? ' — ' + d.name : ''));
+    document.getElementById('acq-save-row').style.display = 'none';
+    acqSession = null;
+  } catch (e) {
+    toast('Erro ao salvar');
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+
+streamOn();   // stream ligado por padrão ao entrar na página
+</script>
+</body>
+</html>

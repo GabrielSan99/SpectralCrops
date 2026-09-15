@@ -4,55 +4,31 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>(function(){try{var t=localStorage.getItem('spectralcrops-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
   <link rel="icon" type="image/png" href="{% static 'img/SpectralCrops-figure.png' %}">
   <title>SpectralCrops</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #f4f6f8; --panel: #ffffff; --line: #e6e9ee;
+      --bg: #f4f6f8; --panel: #ffffff; --panel2: #f7f9fb; --line: #e6e9ee;
       --ink: #1f2937; --muted: #8a93a2; --muted2: #6b7280;
-      --blue: #2f66e0; --blue-soft: #eaf0fd;
-      --green: #2f9e5f;
+      --blue: #2f66e0; --blue-soft: #eaf0fd; --blue-hover: #2557c4;
+      --green: #2f9e5f; --hover: #f1f3f7;
+    }
+    :root[data-theme="dark"] {
+      --bg: #0f1117; --panel: #1a1d27; --panel2: #12151e; --line: #2a2d3a;
+      --ink: #e5e7eb; --muted: #6f7688; --muted2: #a4abbd;
+      --blue: #4f8ef7; --blue-soft: #16233d; --blue-hover: #6ba2f9;
+      --green: #34d399; --hover: #222739;
     }
     body {
       font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
       background: var(--bg); color: var(--ink);
       display: flex; min-height: 100vh;
+      transition: background .2s, color .2s;
     }
 
-    /* ── Sidebar oculta, revelada no hover do puxador ── */
-    .side-trigger { position: fixed; left: 0; top: 0; height: 100vh; z-index: 50; }
-    .side-handle {
-      position: absolute; left: 0; top: 16px; width: 40px; height: 48px;
-      display: flex; align-items: center; justify-content: center;
-      background: var(--panel); border: 1px solid var(--line); border-left: none;
-      border-radius: 0 12px 12px 0; color: var(--muted); cursor: pointer;
-      box-shadow: 2px 0 10px rgba(16,24,40,0.08); transition: opacity .2s;
-    }
-    .side-handle svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; }
-    .side-trigger:hover .side-handle, .sidebar:focus-within ~ .side-handle { opacity: 0; }
-
-    .sidebar {
-      position: absolute; left: 0; top: 0; height: 100vh;
-      width: 250px; background: var(--panel); border-right: 1px solid var(--line);
-      padding: 1.6rem 1.1rem; display: flex; flex-direction: column; gap: 2rem;
-      transform: translateX(-100%); transition: transform .28s ease;
-      box-shadow: 6px 0 24px rgba(16,24,40,0.14);
-    }
-    .side-trigger:hover .sidebar, .sidebar:focus-within { transform: translateX(0); }
-    .logo { padding: 0.4rem 0.6rem; }
-    .logo img { width: 100%; max-width: 190px; height: auto; }
-    nav { display: flex; flex-direction: column; gap: 0.4rem; }
-    nav a {
-      display: flex; align-items: center; gap: 0.9rem;
-      padding: 0.8rem 1rem; border-radius: 10px;
-      color: var(--muted2); text-decoration: none; font-size: 0.98rem;
-      font-weight: 500; transition: background .15s, color .15s;
-    }
-    nav a svg { width: 20px; height: 20px; stroke: currentColor;
-                fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
-    nav a:hover { background: #f1f3f7; color: var(--ink); }
-    nav a.active { background: var(--blue); color: #fff; }
+    /* Menu lateral: ver partials/sidebar.html (traz seu proprio CSS) */
 
     /* ── Main ── */
     .main { flex: 1; padding: 2.6rem 3rem 2.6rem 3.6rem; overflow-y: auto; }
@@ -61,7 +37,7 @@
                    max-width: 620px; line-height: 1.5; }
 
     .cards {
-      margin-top: 2.2rem; display: grid; gap: 1.5rem;
+      margin-top: 1.4rem; display: grid; gap: 1.5rem;
       grid-template-columns: 1fr 1fr; align-items: start;
     }
     .card {
@@ -69,37 +45,144 @@
       border-radius: 14px; padding: 1.5rem 1.6rem;
       box-shadow: 0 1px 2px rgba(16,24,40,0.04);
     }
+    .card.wide { grid-column: 1 / -1; }
     .card h3 { font-size: 1.15rem; font-weight: 700; margin-bottom: 1.1rem; }
+    .empty-hint { color: var(--muted2); font-size: 0.9rem; line-height: 1.5; }
+    .empty-hint a { color: var(--blue); font-weight: 600; text-decoration: none; }
+    .empty-hint a:hover { text-decoration: underline; }
 
-    /* Recent Analyses */
-    .analysis-row {
-      display: flex; justify-content: space-between; align-items: center;
-      padding: 0.85rem 0; border-top: 1px solid var(--line); font-size: 0.98rem;
+    /* Checklist de calibração, logo abaixo do card de projeto */
+    .calib-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 0.9rem; }
+    .calib-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; font-weight: 600;
+                  padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); }
+    .calib-chip.ok { color: #1c7a3d; background: #e3f6e9; border-color: #c9ecd5; }
+    .calib-chip.missing { color: #b42318; background: #fdeaea; border-color: #fecdc9; }
+    .calib-chip.stale { color: #92400e; background: #fef3e0; border-color: #fde3b8; }
+    :root[data-theme="dark"] .calib-chip.ok { color: #6ee7b7; background: #133024; border-color: #1f4f3c; }
+    :root[data-theme="dark"] .calib-chip.missing { color: #ff8b8b; background: #3a1414; border-color: #5c2323; }
+    :root[data-theme="dark"] .calib-chip.stale { color: #fbbf6b; background: #3a2a10; border-color: #5c4318; }
+    .calib-fix-link { font-size: 0.8rem; color: var(--blue); font-weight: 600; text-decoration: none; margin-left: 4px; }
+    .calib-fix-link:hover { text-decoration: underline; }
+
+    /* Botoes de acao rapida */
+    .quick-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1.6rem; }
+    .qa-btn {
+      display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+      padding: 1.1rem 1.3rem; text-decoration: none; color: var(--ink);
+      transition: border-color .15s, transform .1s, background .15s;
     }
-    .analysis-row:first-of-type { border-top: none; }
-    .analysis-row .sid { color: var(--ink); font-weight: 500; }
-    .analysis-row .date { color: var(--muted); }
+    .qa-btn:hover { border-color: var(--blue); transform: translateY(-1px); }
+    .qa-btn svg { width: 22px; height: 22px; stroke: var(--blue); fill: none; stroke-width: 1.9;
+                  stroke-linecap: round; stroke-linejoin: round; margin-bottom: 4px; }
+    .qa-btn .qa-title { font-size: 1rem; font-weight: 700; }
+    .qa-btn .qa-sub { font-size: 0.78rem; color: var(--muted2); }
+    .qa-btn.qa-warn { border-color: #fde3b8; background: #fef3e0; }
+    .qa-btn.qa-warn svg { stroke: #92400e; }
+    :root[data-theme="dark"] .qa-btn.qa-warn { border-color: #5c4318; background: #241a0a; }
+    :root[data-theme="dark"] .qa-btn.qa-warn svg { stroke: #fbbf6b; }
 
-    /* Field Statistics */
-    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    .stat {
-      border-radius: 12px; padding: 1.1rem 1.2rem; color: #fff;
-      display: flex; flex-direction: column; gap: 0.5rem;
+    /* Status do projeto: numeros grandes */
+    .stat-mini-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.8rem; }
+    .stat-mini { background: var(--panel2); border-radius: 12px; padding: 1rem 0.6rem; text-align: center; }
+    .stat-mini-value { display: block; font-size: 1.8rem; font-weight: 700; color: var(--ink); line-height: 1; }
+    .stat-mini-label { display: block; font-size: 0.74rem; color: var(--muted2); margin-top: 6px;
+                        text-transform: uppercase; letter-spacing: .04em; }
+
+    /* Aquisicoes recentes */
+    .acq-recent-row {
+      display: flex; align-items: center; gap: 12px; padding: 0.6rem 0.3rem;
+      border-top: 1px solid var(--line); text-decoration: none; color: inherit;
+      border-radius: 8px; transition: background .15s;
     }
-    .stat.blue  { background: var(--blue); }
-    .stat.green { background: var(--green); }
-    .stat .label { font-size: 0.95rem; font-weight: 500; opacity: 0.95; }
-    .stat .value { font-size: 1.9rem; font-weight: 700; line-height: 1; }
-    .stat .value small { font-size: 1rem; font-weight: 500; opacity: 0.9; }
+    .acq-recent-row:first-of-type { border-top: none; }
+    .acq-recent-row:hover { background: var(--hover); }
+    .acq-recent-thumb { width: 44px; height: 44px; border-radius: 8px; background: #0b0d13;
+                         overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+    .acq-recent-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .acq-recent-name { font-size: 0.92rem; font-weight: 600; color: var(--ink); }
+    .acq-recent-date { font-size: 0.78rem; color: var(--muted2); margin-top: 2px; }
 
-    /* Chart */
-    .chart-svg { width: 100%; height: auto; display: block; }
-    .chart-svg .grid { stroke: var(--line); stroke-width: 1; }
-    .chart-svg .axis { fill: var(--muted); font-size: 12px;
-                       font-family: 'Segoe UI', system-ui, sans-serif; }
-    .chart-svg .area { fill: url(#ndviFill); }
-    .chart-svg .line { fill: none; stroke: var(--blue); stroke-width: 3;
-                       stroke-linecap: round; stroke-linejoin: round; }
+    /* Assinatura espectral */
+    .spectrum-caption { font-size: 0.8rem; color: var(--muted2); margin-top: 0.6rem; }
+
+    /* Estado vazio (nenhum projeto ativo) */
+    .empty-state { text-align: center; padding: 3rem 1rem; color: var(--muted2); }
+    .empty-state .icon { font-size: 2.4rem; margin-bottom: 0.6rem; }
+
+    @media (max-width: 700px) {
+      .quick-actions { grid-template-columns: 1fr; }
+    }
+
+    /* ── Projeto ativo (Analysis) ── */
+    .btn {
+      border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+      border-radius: 9px; padding: 8px 14px; font-size: 0.85rem; font-weight: 500;
+      cursor: pointer; transition: background .15s, border-color .15s;
+    }
+    .btn:hover { background: var(--hover); border-color: var(--blue); }
+    .btn-primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+    .btn-primary:hover { background: var(--blue-hover); }
+    .flash-messages { margin-bottom: 1.2rem; display: flex; flex-direction: column; gap: 8px; }
+    .flash-msg { padding: 10px 14px; border-radius: 9px; font-size: 0.9rem;
+                 background: #fef3e0; color: #92400e; border: 1px solid #fde3b8; }
+    .flash-msg.flash-error { background: #fdeaea; color: #b42318; border-color: #fecdc9; }
+    .flash-msg.flash-success { background: #e3f6e9; color: #1c7a3d; border-color: #c9ecd5; }
+    :root[data-theme="dark"] .flash-msg { background: #3a2a10; color: #fbbf6b; border-color: #5c4318; }
+    :root[data-theme="dark"] .flash-msg.flash-error { background: #3a1414; color: #ff8b8b; border-color: #5c2323; }
+    :root[data-theme="dark"] .flash-msg.flash-success { background: #133024; color: #6ee7b7; border-color: #1f4f3c; }
+
+    .project-card {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 1rem; flex-wrap: wrap; margin-top: 1.6rem;
+    }
+    .project-card .info { display: flex; align-items: center; gap: 10px; }
+    .project-card .name { font-size: 1.05rem; font-weight: 700; }
+    .project-card .sub  { font-size: 0.85rem; color: var(--muted2); }
+    .project-card .actions { display: flex; gap: 8px; }
+
+    /* ── Modal ── */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(16,24,40,0.45);
+                      display: none; align-items: center; justify-content: center; z-index: 1000; }
+    .modal-overlay.open { display: flex; }
+    .modal-box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+                 padding: 1.6rem 1.8rem; width: 440px; max-width: 92vw;
+                 box-shadow: 0 12px 40px rgba(16,24,40,0.18); }
+    .modal-box h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 1rem; }
+    .proj-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 1.1rem; max-height: 240px; overflow-y: auto; }
+    .proj-item { display: flex; align-items: center; gap: 10px; padding: 9px 11px;
+                 border-radius: 9px; border: 1px solid var(--line); cursor: pointer; transition: border-color .15s; }
+    .proj-item:hover { border-color: var(--blue); }
+    .proj-item.active { border-color: var(--green); background: #eefaf1; }
+    .proj-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--muted2); flex-shrink: 0; }
+    .proj-item.active .proj-dot { background: var(--green); border-color: var(--green); }
+    .proj-name { flex: 1; font-size: 0.9rem; font-weight: 600; }
+    .proj-default-badge { font-size: 0.68rem; font-weight: 700; color: var(--green); background: #e3f6e9;
+                           padding: 1px 7px; border-radius: 10px; text-transform: uppercase; letter-spacing: .04em; }
+    .proj-del { background: none; border: none; color: var(--muted2); cursor: pointer; font-size: 1rem; padding: 2px 6px; }
+    .proj-del:hover { color: #dc2626; }
+    .no-proj-msg { text-align: center; color: var(--muted2); font-size: 0.85rem; padding: 10px 0; }
+    .proj-add { border-top: 1px solid var(--line); padding-top: 14px; }
+    .proj-field input, .proj-field select {
+      width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+      font-size: 0.9rem; font-family: inherit; margin-bottom: 8px;
+    }
+    .proj-source-choice { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+    .proj-radio { display: flex; align-items: center; gap: 7px; font-size: 0.87rem; color: var(--ink); cursor: pointer; }
+    .proj-hint { font-size: 0.76rem; color: var(--muted2); line-height: 1.4; margin-top: -2px; }
+    .proj-error { font-size: 0.8rem; color: #dc2626; margin-top: 6px; display: none; }
+    .modal-close { width: 100%; margin-top: 12px; }
+
+    .model-row { display: flex; align-items: center; gap: 8px; padding: 9px 10px;
+                 border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; }
+    .model-badge { font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 5px;
+                   flex-shrink: 0; letter-spacing: .04em; }
+    .model-badge-seg { background: #e0f2fe; color: #0369a1; }
+    .model-badge-det { background: #fef3c7; color: #92400e; }
+    .model-badge-cls { background: #dcfce7; color: #166534; }
+    .model-path { flex: 1; font-size: 0.78rem; color: var(--muted2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .model-path.has-model { color: var(--ink); }
+    .model-row input[type=file] { max-width: 130px; font-size: 0.72rem; }
 
     @media (max-width: 900px) {
       .main { padding: 1.6rem 1.2rem 1.6rem 3.6rem; }
@@ -109,131 +192,297 @@
 </head>
 <body>
 
-  <!-- ── Sidebar oculta: aparece ao passar o mouse no puxador da esquerda ── -->
-  <div class="side-trigger">
-    <div class="side-handle" aria-label="Abrir menu">
-      <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-    </div>
-  <aside class="sidebar">
-    <div class="logo">
-      <img src="{% static 'img/SpectralCrops-removed_background.png' %}" alt="SpectralCrops">
-    </div>
-    <nav>
-      <a class="active" href="{% url 'index' %}">
-        <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
-        Home
-      </a>
-      <a href="{% url 'tests' %}">
-        <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-        Data Acquisition
-      </a>
-      <a href="#">
-        <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l3-4 3 3 4-6"/></svg>
-        Analysis
-      </a>
-      <a href="#">
-        <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9zM9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>
-        Machine Learning
-      </a>
-      <a href="{% url 'parameterization' %}">
-        <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="2" fill="currentColor" stroke="none"/></svg>
-        Parameterization
-      </a>
-      <a href="#">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 0 1-4 0v-.1A1.6 1.6 0 0 0 6.6 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 4 13.6H3.9a2 2 0 0 1 0-4H4a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10.5 4H10.6a2 2 0 0 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8Z"/></svg>
-        Settings
-      </a>
-    </nav>
-  </aside>
-  </div><!-- /side-trigger -->
+  {% include 'partials/sidebar.html' %}
 
   <!-- ── Main ── -->
   <main class="main">
-    <h1 class="welcome-title">Welcome to SpectralCrops</h1>
-    <p class="welcome-sub">Analyze and monitor your crop health using advanced spectral imaging techniques.</p>
+    {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+      <div class="flash-msg{% if message.tags %} flash-{{ message.tags }}{% endif %}">{{ message }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <h1 class="welcome-title">SpectralCrops</h1>
+    <p class="welcome-sub">Imageamento multiespectral de 8 bandas (365–850nm) para análise de sementes: calibre a câmera, capture as amostras e meça a reflectância por região de interesse.</p>
+
+    <!-- ── Projeto ativo ── -->
+    <div class="card project-card">
+      <div class="info">
+        <span style="font-size:1.4rem">📁</span>
+        <div>
+          <div class="name">{{ active_project.name|default:"Nenhum projeto selecionado" }}</div>
+          <div class="sub">{% if active_project %}Projeto ativo — Data Acquisition, Parametrização e Analysis usam ele{% else %}Crie ou selecione um projeto pra organizar suas amostras{% endif %}</div>
+        </div>
+      </div>
+      <div class="actions">
+        {% if active_project %}<button class="btn" onclick="openModelModal()">🤖 Modelos</button>{% endif %}
+        <button class="btn btn-primary" onclick="openProjModal()">📁 Projetos</button>
+      </div>
+    </div>
+
+    {% if active_project %}
+    <div class="calib-row">
+      <span class="calib-chip {{ calib_status.geo }}" title="{% if calib_status.geo == 'missing' %}Calibração espacial ainda não foi feita{% else %}Calibração espacial em dia{% endif %}">
+        {% if calib_status.geo == 'missing' %}✗{% else %}✓{% endif %} Calibração espacial
+      </span>
+      <span class="calib-chip {{ calib_status.refl }}" title="{% if calib_status.refl == 'missing' %}Calibração de reflectância 100% ainda não foi feita{% elif calib_status.refl == 'stale' %}Câmera ou iluminação mudaram depois dessa calibração — refaça antes de adquirir dados{% else %}Calibração em dia{% endif %}">
+        {% if calib_status.refl == 'missing' %}✗{% elif calib_status.refl == 'stale' %}⚠ desatualizada ·{% else %}✓{% endif %} Reflectância 100%
+      </span>
+      <span class="calib-chip {{ calib_status.refl0 }}" title="{% if calib_status.refl0 == 'missing' %}Calibração de reflectância 0% ainda não foi feita{% elif calib_status.refl0 == 'stale' %}Câmera ou iluminação mudaram depois dessa calibração — refaça antes de adquirir dados{% else %}Calibração em dia{% endif %}">
+        {% if calib_status.refl0 == 'missing' %}✗{% elif calib_status.refl0 == 'stale' %}⚠ desatualizada ·{% else %}✓{% endif %} Reflectância 0%
+      </span>
+      {% if missing_calibrations %}<a class="calib-fix-link" href="{% url 'parameterization' %}">Corrigir em Parametrização →</a>{% endif %}
+    </div>
+
+    <div class="quick-actions">
+      <a class="qa-btn {% if missing_calibrations %}qa-warn{% endif %}"
+         href="{% if missing_calibrations %}{% url 'parameterization' %}{% else %}{% url 'data_acquisition' %}{% endif %}">
+        <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        <span class="qa-title">Adquirir Dados</span>
+        <span class="qa-sub">{% if missing_calibrations %}Complete a calibração primeiro{% else %}Capturar as 8 bandas de uma amostra{% endif %}</span>
+      </a>
+      <a class="qa-btn" href="{% url 'analysis' %}">
+        <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l3-4 3 3 4-6"/></svg>
+        <span class="qa-title">Analysis</span>
+        <span class="qa-sub">Anotar ROIs e ver o que já foi medido</span>
+      </a>
+      <a class="qa-btn" href="{% url 'parameterization' %}">
+        <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="2" fill="currentColor" stroke="none"/></svg>
+        <span class="qa-title">Parametrização</span>
+        <span class="qa-sub">Filtros, LEDs, câmera e calibração</span>
+      </a>
+    </div>
 
     <div class="cards">
 
-      <!-- Recent Analyses -->
+      <!-- Status do projeto -->
       <div class="card">
-        <h3>Recent Analyses</h3>
-        <div class="analysis-row"><span class="sid">Sample ID: 00123</span><span class="date">Apr 15, 2024</span></div>
-        <div class="analysis-row"><span class="sid">Sample ID: 00122</span><span class="date">Apr 14, 2024</span></div>
-        <div class="analysis-row"><span class="sid">Sample ID: 00121</span><span class="date">Apr 12, 2024</span></div>
-      </div>
-
-      <!-- Field Statistics -->
-      <div class="card">
-        <h3>Field Statistics</h3>
-        <div class="stats">
-          <div class="stat blue">
-            <span class="label">NDVI</span>
-            <span class="value">0,76</span>
-          </div>
-          <div class="stat green">
-            <span class="label">Soil Moisture</span>
-            <span class="value">32<small> %</small></span>
-          </div>
+        <h3>Status do projeto</h3>
+        <div class="stat-mini-row">
+          <div class="stat-mini"><span class="stat-mini-value">{{ stats.total_acq }}</span><span class="stat-mini-label">Aquisições</span></div>
+          <div class="stat-mini"><span class="stat-mini-value">{{ stats.annotated }}</span><span class="stat-mini-label">Anotadas</span></div>
+          <div class="stat-mini"><span class="stat-mini-value">{{ stats.roi_count }}</span><span class="stat-mini-label">ROIs medidos</span></div>
         </div>
       </div>
 
-      <!-- Recent Analyses (2) -->
+      <!-- Aquisicoes recentes -->
       <div class="card">
-        <h3>Recent Analyses</h3>
-        <div class="analysis-row"><span class="sid">Sample ID: 00120</span><span class="date">Apr 11, 2024</span></div>
-        <div class="analysis-row"><span class="sid">Sample ID: 00119</span><span class="date">Apr 09, 2024</span></div>
+        <h3>Aquisições recentes</h3>
+        {% for acq in recent_acquisitions %}
+        <a class="acq-recent-row" href="{% url 'annotate_view' acq.id %}">
+          <div class="acq-recent-thumb">{% if acq.thumb_url %}<img src="{{ acq.thumb_url }}" alt="">{% else %}<span>🖼</span>{% endif %}</div>
+          <div>
+            <div class="acq-recent-name">{{ acq.name }}</div>
+            <div class="acq-recent-date">{{ acq.created|date:"d/m/Y H:i" }}</div>
+          </div>
+        </a>
+        {% empty %}
+        <p class="empty-hint">Nenhuma aquisição ainda. <a href="{% url 'data_acquisition' %}">Capture a primeira →</a></p>
+        {% endfor %}
       </div>
 
-      <!-- NDVI Over Time -->
-      <div class="card">
-        <h3>NDVI Over Time</h3>
-        <svg class="chart-svg" viewBox="0 0 500 230" preserveAspectRatio="xMidYMid meet">
-          <defs>
-            <linearGradient id="ndviFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%"  stop-color="#2f66e0" stop-opacity="0.18"/>
-              <stop offset="100%" stop-color="#2f66e0" stop-opacity="0"/>
-            </linearGradient>
-          </defs>
-
-          <!-- gridlines + eixo Y -->
-          <g>
-            <line class="grid" x1="52" y1="30"  x2="486" y2="30"/>
-            <line class="grid" x1="52" y1="80"  x2="486" y2="80"/>
-            <line class="grid" x1="52" y1="130" x2="486" y2="130"/>
-            <line class="grid" x1="52" y1="180" x2="486" y2="180"/>
-            <text class="axis" x="16" y="34">0.9</text>
-            <text class="axis" x="16" y="84">0.7</text>
-            <text class="axis" x="16" y="134">0.5</text>
-            <text class="axis" x="16" y="184">0.4</text>
-          </g>
-
-          <!-- area + linha NDVI -->
-          <path class="area" d="M52 165
-            C 95 160, 110 120, 145 118
-            S 200 95, 235 108
-            S 300 60, 340 72
-            S 405 55, 486 58
-            L 486 180 L 52 180 Z"/>
-          <path class="line" d="M52 165
-            C 95 160, 110 120, 145 118
-            S 200 95, 235 108
-            S 300 60, 340 72
-            S 405 55, 486 58"/>
-
-          <!-- eixo X -->
-          <g>
-            <text class="axis" x="60"  y="212">Jun</text>
-            <text class="axis" x="132" y="212">Sep</text>
-            <text class="axis" x="204" y="212">Oct</text>
-            <text class="axis" x="272" y="212">Nov</text>
-            <text class="axis" x="344" y="212">Dez</text>
-            <text class="axis" x="452" y="212">Apr</text>
-          </g>
-        </svg>
+      <!-- Assinatura espectral -->
+      <div class="card wide">
+        <h3>Assinatura espectral — referência 100%</h3>
+        {% if refl_chart %}
+        <div id="home-spectrum-chart"></div>
+        <p class="spectrum-caption">Média bruta (0–255) de cada banda dentro da região branca de referência, usada como base do cálculo de reflectância.</p>
+        {{ refl_chart|json_script:"refl-chart-data" }}
+        {% else %}
+        <p class="empty-hint">Ainda sem calibração de reflectância 100% — faça em <a href="{% url 'parameterization' %}">Parametrização</a> pra ver a assinatura espectral aqui.</p>
+        {% endif %}
       </div>
 
     </div>
+    {% else %}
+    <div class="empty-state">
+      <div class="icon">📁</div>
+      <p>Nenhum projeto selecionado ainda.</p>
+      <p>Crie um projeto pra começar a calibrar e capturar amostras.</p>
+      <button class="btn btn-primary" style="margin-top:14px" onclick="openProjModal()">📁 Abrir projetos</button>
+    </div>
+    {% endif %}
   </main>
 
+  <!-- ── Modal de projetos ── -->
+  <div id="project-modal" class="modal-overlay" onclick="closeProjModal(event)">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <h3>📁 Projetos</h3>
+      <div class="proj-list" id="proj-list">
+        {% for p in projects %}
+        <div class="proj-item {% if active_project and p.id == active_project.id %}active{% endif %}" onclick="selectProject({{ p.id }})">
+          <div class="proj-dot"></div>
+          <div class="proj-name">{{ p.name }}{% if p.is_default %} <span class="proj-default-badge">padrão</span>{% endif %}</div>
+          <button class="proj-del" onclick="deleteProject(event, {{ p.id }})" title="Remover">✕</button>
+        </div>
+        {% empty %}
+        <div class="no-proj-msg">Nenhum projeto criado ainda.</div>
+        {% endfor %}
+      </div>
+      <div class="proj-add">
+        <div class="proj-field">
+          <input type="text" id="proj-name" placeholder="Nome do projeto (ex: Feijão Safra 2026)">
+        </div>
+        <div class="proj-field proj-source-choice">
+          <label class="proj-radio"><input type="radio" name="proj-source" value="blank" checked onchange="updateSourceSelect()"> Projeto vazio</label>
+          <label class="proj-radio"><input type="radio" name="proj-source" value="clone" onchange="updateSourceSelect()"> Baseado em outro projeto</label>
+        </div>
+        <div class="proj-field" id="proj-source-wrap" style="display:none">
+          <select id="proj-source-select">
+            {% for p in projects %}
+            <option value="{{ p.id }}" {% if p.is_default %}selected{% endif %}>{{ p.name }}{% if p.is_default %} (padrão){% endif %}</option>
+            {% endfor %}
+          </select>
+          <p class="proj-hint">Copia os filtros e a intensidade dos LEDs desse projeto. As calibrações (espacial/reflectância) não são copiadas — cada projeto precisa da sua própria.</p>
+        </div>
+        <button class="btn btn-primary" style="width:100%" onclick="addProject()">+ Adicionar projeto</button>
+        <div class="proj-error" id="proj-error"></div>
+      </div>
+      <button class="btn modal-close" onclick="closeProjModal()">Fechar</button>
+    </div>
+  </div>
+
+  <!-- ── Modal de modelos ── -->
+  <div id="model-modal" class="modal-overlay" onclick="closeModelModal(event)">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <h3>🤖 Modelos do projeto</h3>
+      <p style="font-size:0.82rem;color:var(--muted2);margin-bottom:14px">{{ active_project.name|default:"Nenhum projeto ativo" }}</p>
+
+      <div class="model-row">
+        <span class="model-badge model-badge-seg">SEG</span>
+        <span class="model-path" id="mpath-seg">carregando…</span>
+        <input type="file" id="mfile-seg" accept=".pt">
+        <button class="btn" onclick="uploadModel('seg')">Enviar</button>
+      </div>
+      <div class="model-row">
+        <span class="model-badge model-badge-det">DET</span>
+        <span class="model-path" id="mpath-det">carregando…</span>
+        <input type="file" id="mfile-det" accept=".pt">
+        <button class="btn" onclick="uploadModel('det')">Enviar</button>
+      </div>
+      <div class="model-row">
+        <span class="model-badge model-badge-cls">CLS</span>
+        <span class="model-path" id="mpath-cls">carregando…</span>
+        <input type="file" id="mfile-cls" accept=".pt">
+        <button class="btn" onclick="uploadModel('cls')">Enviar</button>
+      </div>
+      <button class="btn modal-close" onclick="closeModelModal()">Fechar</button>
+    </div>
+  </div>
+
+<script>
+const CSRF = '{{ csrf_token }}';
+const ACTIVE_PROJECT_ID = {{ active_project.id|default:"null" }};
+</script>
+{{ active_project.model_seg.name|default:""|json_script:"model-seg-name" }}
+{{ active_project.model_det.name|default:""|json_script:"model-det-name" }}
+{{ active_project.model_cls.name|default:""|json_script:"model-cls-name" }}
+
+<script>
+function apiJSON(url, obj) {
+  return fetch(url, { method: 'POST', headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+    body: JSON.stringify(obj) }).then(r => r.json());
+}
+function projectDeleteUrl(id)   { return '/projects/' + id + '/delete/'; }
+function projectModelUrl(id)    { return '/projects/' + id + '/model/'; }
+
+/* ── Projetos ── */
+function openProjModal()  { document.getElementById('project-modal').classList.add('open'); }
+function closeProjModal(event) {
+  if (event && event.target !== document.getElementById('project-modal')) return;
+  document.getElementById('project-modal').classList.remove('open');
+}
+function selectProject(id) {
+  apiJSON('{% url "project_select" %}', { id }).then(d => { if (d.ok) window.location.reload(); });
+}
+function deleteProject(event, id) {
+  event.stopPropagation();
+  if (!confirm('Remover este projeto? As aquisições já feitas não serão apagadas, só deixam de pertencer a ele.')) return;
+  fetch(projectDeleteUrl(id), { method: 'POST', headers: { 'X-CSRFToken': CSRF } })
+    .then(r => r.json()).then(d => { if (d.ok) window.location.reload(); });
+}
+function updateSourceSelect() {
+  const clone = document.querySelector('input[name="proj-source"]:checked').value === 'clone';
+  document.getElementById('proj-source-wrap').style.display = clone ? 'block' : 'none';
+}
+
+function addProject() {
+  const name = document.getElementById('proj-name').value.trim();
+  const errEl = document.getElementById('proj-error');
+  errEl.style.display = 'none';
+  if (!name) { errEl.textContent = 'Preencha o nome.'; errEl.style.display = 'block'; return; }
+  const wantsClone = document.querySelector('input[name="proj-source"]:checked').value === 'clone';
+  const sourceId = wantsClone ? parseInt(document.getElementById('proj-source-select').value) : null;
+  apiJSON('{% url "project_create" %}', { name, source_id: sourceId }).then(d => {
+    if (!d.ok) { errEl.textContent = d.error || 'Falha ao criar projeto'; errEl.style.display = 'block'; return; }
+    window.location.reload();
+  });
+}
+
+/* ── Modelos ── */
+function openModelModal() {
+  if (!ACTIVE_PROJECT_ID) return;
+  const names = {
+    seg: JSON.parse(document.getElementById('model-seg-name').textContent),
+    det: JSON.parse(document.getElementById('model-det-name').textContent),
+    cls: JSON.parse(document.getElementById('model-cls-name').textContent),
+  };
+  ['seg','det','cls'].forEach(t => {
+    const el = document.getElementById('mpath-' + t);
+    el.textContent = names[t] || 'Nenhum modelo enviado';
+    el.classList.toggle('has-model', !!names[t]);
+  });
+  document.getElementById('model-modal').classList.add('open');
+}
+function closeModelModal(event) {
+  if (event && event.target !== document.getElementById('model-modal')) return;
+  document.getElementById('model-modal').classList.remove('open');
+}
+function uploadModel(type) {
+  if (!ACTIVE_PROJECT_ID) return;
+  const input = document.getElementById('mfile-' + type);
+  const file = input.files[0];
+  if (!file) { alert('Escolha um arquivo .pt primeiro.'); return; }
+  const fd = new FormData();
+  fd.append('type', type);
+  fd.append('file', file);
+  fetch(projectModelUrl(ACTIVE_PROJECT_ID), { method: 'POST', headers: { 'X-CSRFToken': CSRF }, body: fd })
+    .then(r => r.json()).then(d => {
+      if (!d.ok) { alert(d.error || 'Falha ao enviar modelo'); return; }
+      document.getElementById('mpath-' + type).textContent = d.name;
+      document.getElementById('mpath-' + type).classList.add('has-model');
+    });
+}
+
+/* ── Assinatura espectral (barras, mesma logica do refl-chart de Parametrização) ── */
+{% if refl_chart %}
+(function() {
+  const data = JSON.parse(document.getElementById('refl-chart-data').textContent);
+  const el = document.getElementById('home-spectrum-chart');
+  const W = 900, H = 190, padL = 40, padR = 10, padT = 10, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const FULL_SCALE = 255;
+  const slot = plotW / data.length;
+  const barW = Math.min(56, slot * 0.55);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Média por banda da referência branca (0-255)">`;
+  [0, 64, 128, 192, 255].forEach(t => {
+    const y = padT + plotH - (t / FULL_SCALE) * plotH;
+    svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--line)" stroke-width="1"/>`;
+    svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--muted2)">${t}</text>`;
+  });
+  data.forEach((b, i) => {
+    const cx = padL + slot * i + slot / 2;
+    const h = (b.value / FULL_SCALE) * plotH;
+    const y = padT + plotH - h;
+    svg += `<rect x="${(cx - barW / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" rx="5" fill="${b.color}"/>`;
+    svg += `<text x="${cx}" y="${H - 8}" text-anchor="middle" font-size="10" fill="var(--muted)">${b.nm}nm</text>`;
+  });
+  svg += `</svg>`;
+  el.innerHTML = svg;
+})();
+{% endif %}
+</script>
 </body>
 </html>

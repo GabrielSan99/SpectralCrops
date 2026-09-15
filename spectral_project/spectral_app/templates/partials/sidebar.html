@@ -1,0 +1,143 @@
+{% load static %}
+<!-- Menu lateral oculto (aparece no hover do puxador) + seletor de tema --
+     compartilhado por todas as paginas. Usa as variaveis --panel/--line/
+     --ink/--muted/--muted2/--blue/--panel2 ja definidas no :root de cada
+     pagina (inclusive o bloco [data-theme="dark"]), entao so precisa ser
+     incluido uma vez, sem repetir CSS. -->
+<style>
+  .side-trigger { position: fixed; left: 0; top: 0; height: 100vh; z-index: 50; }
+  .side-handle {
+    position: absolute; left: 0; top: 16px; width: 40px; height: 48px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--panel); border: 1px solid var(--line); border-left: none;
+    border-radius: 0 12px 12px 0; color: var(--muted); cursor: pointer;
+    box-shadow: 2px 0 10px rgba(16,24,40,0.08); transition: opacity .2s, background .2s;
+  }
+  .side-handle svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; }
+  .side-trigger:hover .side-handle, .app-nav-sidebar:focus-within ~ .side-handle { opacity: 0; }
+
+  .app-nav-sidebar {
+    position: absolute; left: 0; top: 0; height: 100vh;
+    width: 250px; background: var(--panel); border-right: 1px solid var(--line);
+    padding: 1.6rem 1.1rem; display: flex; flex-direction: column; gap: 1.6rem;
+    transform: translateX(-100%); transition: transform .28s ease, background .2s;
+    box-shadow: 6px 0 24px rgba(16,24,40,0.14);
+  }
+  .side-trigger:hover .app-nav-sidebar, .app-nav-sidebar:focus-within { transform: translateX(0); }
+  .logo { padding: 0.4rem 0.6rem; }
+  .logo img { width: 100%; max-width: 190px; height: auto; }
+  /* Assinatura visual: as 8 bandas de LED do proprio equipamento, viradas gradiente */
+  .logo-spectrum {
+    height: 4px; border-radius: 999px; margin-top: 12px;
+    background: linear-gradient(90deg, #7a3cff, #5b2bd6, #2b6bff, #22c55e, #f2c200, #ef4444, #b91c1c, #6b1a1a);
+    transition: box-shadow .2s;
+  }
+  :root[data-theme="dark"] .logo-spectrum { box-shadow: 0 0 12px rgba(124,58,255,.4), 0 0 16px rgba(239,68,68,.2); }
+
+  nav { display: flex; flex-direction: column; gap: 0.35rem; }
+  nav a {
+    display: flex; align-items: center; gap: 0.85rem; padding: 0.75rem 1rem;
+    border-radius: 10px; color: var(--muted); text-decoration: none;
+    font-size: 0.95rem; font-weight: 500; transition: background .15s, color .15s;
+  }
+  nav a svg { width: 20px; height: 20px; stroke: currentColor; fill: none;
+              stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+  nav a:hover { background: var(--panel2, var(--bg)); color: var(--ink); }
+  nav a.active { background: var(--blue); color: #fff; }
+
+  /* Toggle de tema claro/escuro -- fica fixo no rodape do menu */
+  .theme-toggle {
+    margin-top: auto; display: flex; align-items: center; gap: 10px;
+    background: none; border: none; cursor: pointer; padding: 0.7rem 0.6rem;
+    color: var(--muted); font-size: 0.85rem; font-weight: 500; font-family: inherit;
+    border-radius: 10px; transition: background .15s, color .15s; text-align: left;
+  }
+  .theme-toggle:hover { background: var(--panel2, var(--bg)); color: var(--ink); }
+  .theme-toggle-track {
+    position: relative; width: 40px; height: 22px; border-radius: 999px; flex-shrink: 0;
+    background: var(--line); transition: background .25s;
+  }
+  :root[data-theme="dark"] .theme-toggle-track { background: linear-gradient(90deg, #5b2bd6, #2b6bff); }
+  .theme-toggle-thumb {
+    position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform .25s ease; color: #f2b90c;
+  }
+  :root[data-theme="dark"] .theme-toggle-thumb { transform: translateX(18px); color: #6d28d9; }
+  .theme-toggle-thumb svg {
+    width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2;
+    position: absolute; transition: opacity .2s, transform .2s;
+  }
+  .theme-toggle-thumb .icon-sun { opacity: 1; transform: scale(1) rotate(0); }
+  .theme-toggle-thumb .icon-moon { opacity: 0; transform: scale(.4) rotate(-40deg); fill: currentColor; }
+  :root[data-theme="dark"] .theme-toggle-thumb .icon-sun { opacity: 0; transform: scale(.4) rotate(40deg); }
+  :root[data-theme="dark"] .theme-toggle-thumb .icon-moon { opacity: 1; transform: scale(1) rotate(0); }
+</style>
+
+{% with url_name=request.resolver_match.url_name %}
+<div class="side-trigger">
+  <div class="side-handle" aria-label="Abrir menu">
+    <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+  </div>
+  <aside class="app-nav-sidebar">
+    <div class="logo">
+      <img src="{% static 'img/SpectralCrops-removed_background.png' %}" alt="SpectralCrops">
+      <div class="logo-spectrum"></div>
+    </div>
+    <nav>
+      <a class="{% if url_name == 'index' %}active{% endif %}" href="{% url 'index' %}">
+        <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
+        Home
+      </a>
+      <a class="{% if url_name == 'data_acquisition' %}active{% endif %}" href="{% url 'data_acquisition' %}">
+        <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        Data Acquisition
+      </a>
+      <a class="{% if url_name == 'analysis' or url_name == 'annotate_view' or url_name == 'roi_measurements_view' %}active{% endif %}" href="{% url 'analysis' %}">
+        <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l3-4 3 3 4-6"/></svg>
+        Analysis
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9zM9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>
+        Machine Learning
+      </a>
+      <a class="{% if url_name == 'parameterization' %}active{% endif %}" href="{% url 'parameterization' %}">
+        <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="2" fill="currentColor" stroke="none"/></svg>
+        Parameterization
+      </a>
+      <a href="{% url 'admin:index' %}">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 0 1-4 0v-.1A1.6 1.6 0 0 0 6.6 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 4 13.6H3.9a2 2 0 0 1 0-4H4a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10.5 4H10.6a2 2 0 0 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8Z"/></svg>
+        Settings
+      </a>
+    </nav>
+
+    <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" aria-label="Alternar tema claro/escuro" title="Alternar tema">
+      <span class="theme-toggle-track">
+        <span class="theme-toggle-thumb">
+          <svg class="icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+          <svg class="icon-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+        </span>
+      </span>
+      <span class="theme-toggle-label" id="theme-toggle-label">Tema escuro</span>
+    </button>
+  </aside>
+</div><!-- /side-trigger -->
+{% endwith %}
+
+<script>
+(function() {
+  function applyLabel(theme) {
+    var label = document.getElementById('theme-toggle-label');
+    if (label) label.textContent = theme === 'dark' ? 'Tema claro' : 'Tema escuro';
+  }
+  window.toggleTheme = function() {
+    var current = document.documentElement.getAttribute('data-theme') || 'light';
+    var next = current === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem('spectralcrops-theme', next); } catch (e) {}
+    document.documentElement.setAttribute('data-theme', next);
+    applyLabel(next);
+  };
+  applyLabel(document.documentElement.getAttribute('data-theme') || 'light');
+})();
+</script>

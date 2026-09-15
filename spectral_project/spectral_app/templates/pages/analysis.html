@@ -1,0 +1,491 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>(function(){try{var t=localStorage.getItem('spectralcrops-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+  <link rel="icon" type="image/png" href="{% static 'img/SpectralCrops-figure.png' %}">
+  <title>Analysis — SpectralCrops</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f4f6f8; --panel: #ffffff; --panel2: #f7f9fb; --line: #e6e9ee;
+      --ink: #1f2937; --muted: #6b7280; --muted2: #9aa2ad;
+      --blue: #2f66e0; --blue-soft: #eaf0fd; --blue-hover: #2557c4; --green: #2f9e5f;
+      --hover: #f1f3f7;
+    }
+    :root[data-theme="dark"] {
+      --bg: #0f1117; --panel: #1a1d27; --panel2: #12151e; --line: #2a2d3a;
+      --ink: #e5e7eb; --muted: #a4abbd; --muted2: #6f7688;
+      --blue: #4f8ef7; --blue-soft: #16233d; --blue-hover: #6ba2f9; --green: #34d399;
+      --hover: #222739;
+    }
+    body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--ink); min-height: 100vh; transition: background .2s, color .2s; }
+
+    header {
+      background: var(--panel); padding: 16px 24px 16px 56px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+    }
+    header h1 { font-size: 1.2rem; color: var(--ink); font-weight: 700; }
+    .project-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--blue-soft); border: 1px solid #cddcfa; color: var(--blue);
+      padding: 5px 12px; border-radius: 8px; font-size: .85rem;
+      text-decoration: none; white-space: nowrap;
+    }
+    .project-pill:hover { border-color: var(--blue); }
+    .progress-bar-wrap { background: var(--line); border-radius: 4px; height: 8px; width: 200px; }
+    .progress-bar { background: var(--green); height: 8px; border-radius: 4px; transition: width .3s; }
+    .progress-label { font-size: 0.75rem; color: var(--muted); margin-top: 4px; text-align: right; }
+
+    .toolbar {
+      padding: 10px 24px; display: flex; gap: 8px; align-items: center;
+      flex-wrap: wrap; background: var(--panel2); border-bottom: 1px solid var(--line);
+    }
+    input[type=search] {
+      background: var(--panel); border: 1px solid var(--line); color: var(--ink);
+      padding: 6px 12px; border-radius: 6px; width: 220px; font-size: .9rem; font-family: inherit;
+    }
+    select {
+      background: var(--panel); border: 1px solid var(--line); color: var(--ink);
+      padding: 6px 10px; border-radius: 6px; font-size: .9rem; font-family: inherit;
+    }
+    .tb-btn {
+      background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+      padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: .82rem;
+      white-space: nowrap; transition: border-color .15s, color .15s;
+    }
+    .tb-btn:hover { border-color: var(--blue); color: var(--blue); }
+    #sel-count { font-size: .82rem; color: var(--blue); padding: 0 4px; display: none; white-space: nowrap; }
+    .export-btn {
+      background: var(--blue); color: #fff; border: none; padding: 7px 20px;
+      border-radius: 6px; cursor: pointer; font-size: .88rem; font-weight: 600;
+    }
+    .export-btn:hover { background: var(--blue-hover); }
+
+    /* ── Cards ── */
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; padding: 20px 24px; }
+    .card {
+      background: var(--panel); border: 2px solid var(--line); border-radius: 10px;
+      overflow: hidden; cursor: pointer; transition: border-color .2s, transform .15s;
+      text-decoration: none; color: inherit; display: block; position: relative;
+      box-shadow: 0 1px 2px rgba(16,24,40,0.04);
+    }
+    .card:hover { border-color: var(--blue); transform: translateY(-2px); }
+    .card.done { border-color: var(--green); }
+    .card.selected { border-color: var(--blue) !important; box-shadow: 0 0 0 2px var(--blue-soft); }
+
+    .card-select {
+      position: absolute; top: 8px; right: 8px; width: 22px; height: 22px; border-radius: 50%;
+      border: 2px solid #cdd3db; background: #fff; cursor: pointer; z-index: 10;
+      display: flex; align-items: center; justify-content: center;
+      transition: all .15s; font-size: 12px; color: transparent;
+      box-shadow: 0 1px 3px rgba(16,24,40,0.15);
+    }
+    .card:hover .card-select { border-color: var(--blue); }
+    .card.selected .card-select { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+    .card-delete {
+      position: absolute; top: 8px; left: 8px; width: 22px; height: 22px; border-radius: 50%;
+      border: 2px solid #fff; background: rgba(17,24,39,0.6); cursor: pointer; z-index: 10;
+      display: flex; align-items: center; justify-content: center;
+      transition: all .15s; font-size: 12px; color: #fff; opacity: 0;
+      box-shadow: 0 1px 3px rgba(16,24,40,0.25);
+    }
+    .card:hover .card-delete { opacity: 1; }
+    .card-delete:hover { background: #dc2626; border-color: #dc2626; }
+
+    /* imagem em fundo escuro (mesmo padrao das outras telas: stream/refl/geo) */
+    .card-thumb { width: 100%; height: 130px; background: #0b0d13;
+                  display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .card-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .card-thumb .ph { font-size: 2rem; color: #6b7280; }
+    .card-body { padding: 10px 12px 6px; }
+    .card-name { font-size: .8rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card-date { font-size: .7rem; color: var(--muted); margin-top: 2px; }
+
+    .badge-row { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+    .badge { display: inline-block; padding: 2px 7px; border-radius: 12px; font-size: .68rem; font-weight: 600; }
+    .badge-done    { background: #e3f6e9; color: #1c7a3d; }
+    .badge-pending { background: #fef3e0; color: #b45309; }
+    .badge-poly    { background: var(--blue-soft); color: var(--blue); }
+    .badge-box     { background: #fde9d8; color: #c2540a; }
+    .badge-point   { background: #ede4fb; color: #7440c4; }
+
+    .card-label-row { padding: 6px 12px 8px; border-top: 1px solid var(--line); }
+    .card-label {
+      font-size: .72rem; color: var(--muted); cursor: pointer; display: inline-block;
+      padding: 2px 6px; border-radius: 4px; border: 1px dashed var(--line);
+      transition: border-color .15s, color .15s; max-width: 100%;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .card-label:hover { border-color: var(--blue); color: var(--blue); }
+    .card-label.has-label { border-style: solid; border-color: var(--line); color: var(--ink); background: var(--panel2); }
+    .label-input {
+      background: var(--panel); border: 1px solid var(--blue); color: var(--ink);
+      padding: 2px 6px; border-radius: 4px; font-size: .72rem; width: 100%; outline: none; font-family: inherit;
+    }
+
+    #no-results { display: none; padding: 40px 24px; color: var(--muted); text-align: center; }
+    .no-project {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 60vh; gap: 16px; color: var(--muted); text-align: center;
+    }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(16,24,40,.45);
+      display: none; align-items: center; justify-content: center; z-index: 1000;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 28px 32px; width: 420px; max-width: 94vw;
+                 box-shadow: 0 12px 40px rgba(16,24,40,0.18); }
+    .modal-box h3 { color: var(--ink); font-size: 1.1rem; margin-bottom: 6px; }
+    .modal-summary { color: var(--muted); font-size: .85rem; margin-bottom: 20px; line-height: 1.6; }
+    .modal-summary strong { color: var(--ink); }
+    .modal-options { display: flex; gap: 12px; margin-bottom: 14px; }
+    .modal-opt {
+      flex: 1; padding: 16px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel2);
+      color: var(--ink); cursor: pointer; text-align: center; transition: border-color .15s, background .15s; line-height: 1.5;
+    }
+    .modal-opt:hover:not(:disabled) { border-color: var(--blue); background: var(--blue-soft); }
+    .modal-opt:disabled { opacity: .4; cursor: not-allowed; }
+    .modal-opt .opt-icon { font-size: 1.5rem; display: block; margin-bottom: 6px; }
+    .modal-opt .opt-label { font-size: .85rem; font-weight: 600; }
+    .modal-opt .opt-sub { font-size: .72rem; color: var(--blue); margin-top: 2px; }
+    .modal-opt:disabled .opt-sub { color: var(--muted2); }
+    .modal-cancel {
+      width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--line);
+      background: transparent; color: var(--muted); cursor: pointer; font-size: .85rem; transition: color .15s;
+    }
+    .modal-cancel:hover { color: var(--ink); border-color: var(--muted2); }
+  </style>
+</head>
+<body>
+
+{% include 'partials/sidebar.html' %}
+
+<!-- ── Export Modal ── -->
+<div id="export-modal" class="modal-overlay" onclick="closeModal(event)">
+  <div class="modal-box" onclick="event.stopPropagation()" style="width:480px">
+    <h3>Exportar anotações</h3>
+    <div class="modal-summary" id="modal-summary"></div>
+    <div class="modal-options">
+      <button class="modal-opt" id="btn-seg" onclick="doExport('seg')">
+        <span class="opt-icon">⬡</span><span class="opt-label">Segmentação</span>
+        <span class="opt-sub" id="modal-poly-count"></span>
+      </button>
+      <button class="modal-opt" id="btn-det" onclick="doExport('det')">
+        <span class="opt-icon">▢</span><span class="opt-label">Detecção</span>
+        <span class="opt-sub" id="modal-box-count"></span>
+      </button>
+      <button class="modal-opt" id="btn-cls" onclick="doExport('cls')">
+        <span class="opt-icon">🏷</span><span class="opt-label">Classificação</span>
+        <span class="opt-sub" id="modal-cls-count"></span>
+      </button>
+      <button class="modal-opt" id="btn-rois" onclick="doExport('rois')">
+        <span class="opt-icon">📊</span><span class="opt-label">Espectros por ROI</span>
+        <span class="opt-sub" id="modal-rois-count"></span>
+      </button>
+    </div>
+    <button class="modal-cancel" onclick="closeModal()">Cancelar</button>
+  </div>
+</div>
+
+<!-- ── Header ── -->
+<header>
+  <div style="display:flex;align-items:center;gap:16px">
+    <h1>🔬 Analysis</h1>
+    <a class="project-pill" href="{% url 'index' %}" title="Trocar de projeto na Home">
+      📁 {{ project.name|default:"Nenhum projeto selecionado" }} ▾
+    </a>
+  </div>
+  <div>
+    <div class="progress-bar-wrap"><div class="progress-bar" style="width: {{ progress_pct }}%"></div></div>
+    <div class="progress-label">{{ annotated }} / {{ total }} anotadas</div>
+  </div>
+</header>
+
+<!-- ── Toolbar ── -->
+<div class="toolbar">
+  <input type="search" id="search" placeholder="Buscar amostra..." oninput="filterCards()">
+  <select id="filter-status" onchange="filterCards()">
+    <option value="all">Todas</option>
+    <option value="done">Anotadas</option>
+    <option value="pending">Pendentes</option>
+    <option value="poly">Com Polígonos</option>
+    <option value="box">Com Boxes</option>
+    <option value="point">Com Pontos</option>
+  </select>
+  <select id="filter-label" onchange="filterCards()">
+    <option value="">Todos os labels</option>
+    {% for lbl in all_labels %}<option value="{{ lbl }}">{{ lbl }}</option>{% endfor %}
+  </select>
+  <button class="tb-btn" onclick="selectVisible()">✓ Selecionar visíveis</button>
+  <button class="tb-btn" onclick="clearSelection()">✗ Limpar</button>
+  <span id="sel-count"></span>
+  <a class="tb-btn" style="margin-left:auto; text-decoration:none; display:inline-flex; align-items:center;" href="{% url 'roi_measurements_view' %}">📊 Ver ROIs</a>
+  <button class="tb-btn" onclick="downloadSelected(this)">⬇ Baixar imagens</button>
+  <button class="export-btn" onclick="openModal()">⬇ Exportar</button>
+</div>
+
+{% if not project %}
+<div class="no-project">
+  <div style="font-size:3rem">📁</div>
+  <div style="font-size:1.1rem;color:#9ca3af">Nenhum projeto selecionado</div>
+  <div style="font-size:.85rem">Vá em <strong style="color:#a5b4fc">Home</strong> pra criar ou selecionar um projeto.</div>
+</div>
+{% else %}
+<div class="grid" id="grid">
+  {% for img in acquisitions %}
+  <a class="card {% if img.annotated %}done{% endif %}"
+     href="{% url 'annotate_view' img.id %}"
+     data-name="{{ img.name|lower }}"
+     data-id="{{ img.id }}"
+     data-status="{% if img.annotated %}done{% else %}pending{% endif %}"
+     data-polygons="{{ img.n_polygons }}"
+     data-boxes="{{ img.n_boxes }}"
+     data-points="{{ img.n_points }}"
+     data-rois="{{ img.n_rois }}"
+     data-label="{{ img.image_label|lower }}">
+    <div class="card-select" onclick="toggleSelect(this, event)">✓</div>
+    <div class="card-delete" title="Excluir aquisição" onclick="deleteAcquisition(this, event, {{ img.id }})">✕</div>
+    <div class="card-thumb">
+      {% if img.thumb_url %}<img src="{{ img.thumb_url }}" alt="{{ img.name }}">{% else %}<span class="ph">🖼</span>{% endif %}
+    </div>
+    <div class="card-body">
+      <div class="card-name" title="{{ img.name }}">{{ img.name }}</div>
+      <div class="card-date">{{ img.created|date:"d/m/Y H:i" }}</div>
+      <div class="badge-row">
+        {% if img.annotated %}
+          <span class="badge badge-done">✓</span>
+          {% if img.n_polygons > 0 %}<span class="badge badge-poly">⬡ {{ img.n_polygons }} polí</span>{% endif %}
+          {% if img.n_boxes > 0 %}<span class="badge badge-box">▢ {{ img.n_boxes }} box</span>{% endif %}
+          {% if img.n_points > 0 %}<span class="badge badge-point">· {{ img.n_points }} pt</span>{% endif %}
+        {% else %}
+          <span class="badge badge-pending">Pendente</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="card-label-row" onclick="event.stopPropagation(); event.preventDefault();">
+      <span class="card-label {% if img.image_label %}has-label{% endif %}" data-id="{{ img.id }}" onclick="editLabel(this)">
+        {% if img.image_label %}🏷 {{ img.image_label }}{% else %}+ label{% endif %}
+      </span>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+<div id="no-results">Nenhuma amostra encontrada.</div>
+{% endif %}
+
+<script>
+const CSRF = '{{ csrf_token }}';
+const URLS = {
+  exportSeg:    "{% url 'export_yolo_seg' %}",
+  exportDet:    "{% url 'export_yolo_boxes' %}",
+  exportCls:    "{% url 'export_classification' %}",
+  exportRois:   "{% url 'export_roi_measurements' %}",
+  downloadZip:  "{% url 'data_acquisition_download_zip' %}",
+};
+const MAX_ZIP_DOWNLOAD = 30;   // mesmo teto do backend (MAX_ZIP_DOWNLOAD_ACQUISITIONS em views.py)
+function labelUrl(id) { return `/analysis/annotate/${id}/label/`; }
+function deleteUrl(id) { return `/data_acquisition/${id}/delete/`; }
+function apiJSON(url, obj) {
+  return fetch(url, { method: 'POST', headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+    body: JSON.stringify(obj) }).then(r => r.json());
+}
+
+/* ── Baixar imagens selecionadas (zip com raw+normalized+rgb) ── */
+async function downloadSelected(btn) {
+  const selected = [...document.querySelectorAll('.card.selected')];
+  if (!selected.length) { alert('Selecione pelo menos uma amostra pra baixar.'); return; }
+  if (selected.length > MAX_ZIP_DOWNLOAD) {
+    alert(`Máximo de ${MAX_ZIP_DOWNLOAD} imagens por download — você selecionou ${selected.length}. Reduza a seleção.`);
+    return;
+  }
+  const ids = selected.map(c => parseInt(c.dataset.id));
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Gerando zip…';
+  try {
+    const r = await fetch(URLS.downloadZip, {
+      method: 'POST', headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      alert(d.error || 'Falha ao gerar o download.');
+      return;
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `aquisicoes_${Date.now()}.zip`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('Erro ao baixar as imagens.');
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+
+/* ── Excluir aquisição ── */
+function deleteAcquisition(el, event, id) {
+  event.preventDefault(); event.stopPropagation();
+  const card = el.closest('.card');
+  const name = card.dataset.name || 'essa amostra';
+  if (!confirm(`Excluir "${name}"? Apaga as 8 bandas capturadas e não tem como desfazer.`)) return;
+  el.textContent = '…'; el.style.opacity = '1';
+  fetch(deleteUrl(id), { method: 'POST', headers: { 'X-CSRFToken': CSRF } })
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) { alert(d.error || 'Falha ao excluir'); el.textContent = '✕'; return; }
+      card.remove();
+    })
+    .catch(() => { alert('Erro ao excluir'); el.textContent = '✕'; });
+}
+
+/* ── Filter ── */
+function filterCards() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const status = document.getElementById('filter-status').value;
+  const label = document.getElementById('filter-label').value.toLowerCase();
+  sessionStorage.setItem('ann-filter-status', status);
+  sessionStorage.setItem('ann-filter-search', q);
+  sessionStorage.setItem('ann-filter-label', label);
+  let visible = 0;
+  document.querySelectorAll('.card').forEach(c => {
+    const nPoly = parseInt(c.dataset.polygons) || 0;
+    const nBox = parseInt(c.dataset.boxes) || 0;
+    const nPoint = parseInt(c.dataset.points) || 0;
+    const matchText = c.dataset.name.includes(q);
+    const matchStatus =
+      status === 'all' ? true :
+      status === 'done' ? c.dataset.status === 'done' :
+      status === 'pending' ? c.dataset.status === 'pending' :
+      status === 'poly' ? nPoly > 0 :
+      status === 'box' ? nBox > 0 :
+      status === 'point' ? nPoint > 0 : true;
+    const matchLabel = !label || c.dataset.label === label;
+    const show = matchText && matchStatus && matchLabel;
+    c.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  document.getElementById('no-results').style.display = visible === 0 ? 'block' : 'none';
+}
+window.addEventListener('DOMContentLoaded', () => {
+  const s = sessionStorage.getItem('ann-filter-status');
+  const q = sessionStorage.getItem('ann-filter-search');
+  const l = sessionStorage.getItem('ann-filter-label');
+  if (s) document.getElementById('filter-status').value = s;
+  if (q) document.getElementById('search').value = q;
+  if (l) { const sel = document.getElementById('filter-label'); if ([...sel.options].some(o => o.value === l)) sel.value = l; }
+  if (s || q || l) filterCards();
+});
+
+/* ── Selection ── */
+function toggleSelect(el, event) {
+  event.preventDefault(); event.stopPropagation();
+  el.closest('.card').classList.toggle('selected');
+  updateSelCount();
+}
+function selectVisible() {
+  document.querySelectorAll('.card').forEach(c => { if (c.style.display !== 'none') c.classList.add('selected'); });
+  updateSelCount();
+}
+function clearSelection() {
+  document.querySelectorAll('.card.selected').forEach(c => c.classList.remove('selected'));
+  updateSelCount();
+}
+function updateSelCount() {
+  const n = document.querySelectorAll('.card.selected').length;
+  const el = document.getElementById('sel-count');
+  el.textContent = n > 0 ? `${n} selecionada${n > 1 ? 's' : ''}` : '';
+  el.style.display = n > 0 ? 'inline' : 'none';
+}
+
+/* ── Export modal ── */
+function openModal() {
+  const selected = [...document.querySelectorAll('.card.selected')];
+  if (selected.length === 0) { alert('Selecione pelo menos uma amostra antes de exportar.'); return; }
+  const nPoly = selected.filter(c => parseInt(c.dataset.polygons) > 0).length;
+  const nBox = selected.filter(c => parseInt(c.dataset.boxes) > 0).length;
+  const nLabel = selected.filter(c => c.dataset.label && c.dataset.label.trim()).length;
+  const nRois = selected.reduce((sum, c) => sum + (parseInt(c.dataset.rois) || 0), 0);
+  const n = selected.length;
+  document.getElementById('modal-summary').innerHTML = `<strong>${n}</strong> amostra${n > 1 ? 's' : ''} selecionada${n > 1 ? 's' : ''}`;
+  document.getElementById('modal-poly-count').textContent = `${nPoly} com polígonos`;
+  document.getElementById('modal-box-count').textContent = `${nBox} com boxes`;
+  document.getElementById('modal-cls-count').textContent = `${nLabel} com categoria`;
+  document.getElementById('modal-rois-count').textContent = `${nRois} ROI(s) medidos`;
+  document.getElementById('btn-seg').disabled = nPoly === 0;
+  document.getElementById('btn-det').disabled = nBox === 0;
+  document.getElementById('btn-cls').disabled = nLabel === 0;
+  document.getElementById('btn-rois').disabled = nRois === 0;
+  document.getElementById('export-modal').classList.add('open');
+}
+function closeModal(event) {
+  if (event && event.target !== document.getElementById('export-modal')) return;
+  document.getElementById('export-modal').classList.remove('open');
+}
+function doExport(type) {
+  const selected = [...document.querySelectorAll('.card.selected')];
+  const ids = selected.map(c => parseInt(c.dataset.id));
+  if (type === 'rois') {
+    apiJSON(URLS.exportRois, { ids }).then(data => {
+      const blob = new Blob([data.csv], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'roi_espectros.csv'; a.click();
+      document.getElementById('export-modal').classList.remove('open');
+    });
+    return;
+  }
+  const endpoint = type === 'seg' ? URLS.exportSeg : type === 'det' ? URLS.exportDet : URLS.exportCls;
+  const filename = type === 'seg' ? 'yolo_seg_annotations.json' : type === 'det' ? 'yolo_annotations.json' : 'classification_annotations.json';
+  apiJSON(endpoint, { ids }).then(data => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+    document.getElementById('export-modal').classList.remove('open');
+  });
+}
+
+/* ── Label inline edit ── */
+function editLabel(el) {
+  const id = el.dataset.id;
+  const cur = el.classList.contains('has-label') ? el.textContent.trim().replace(/^🏷\s*/, '') : '';
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.className = 'label-input'; inp.value = cur;
+  inp.placeholder = 'ex: saudável, doente, revisar…';
+  el.replaceWith(inp); inp.focus(); inp.select();
+
+  function save() {
+    const label = inp.value.trim();
+    apiJSON(labelUrl(id), { label }).then(() => {
+      if (label && ![...document.getElementById('filter-label').options].some(o => o.value === label)) {
+        const opt = document.createElement('option');
+        opt.value = label; opt.textContent = label;
+        document.getElementById('filter-label').appendChild(opt);
+      }
+    });
+    const span = document.createElement('span');
+    span.className = 'card-label' + (label ? ' has-label' : '');
+    span.dataset.id = id;
+    span.onclick = function() { editLabel(this); };
+    span.textContent = label ? '🏷 ' + label : '+ label';
+    inp.replaceWith(span);
+    const card = span.closest('.card');
+    if (card) card.dataset.label = label.toLowerCase();
+    filterCards();
+  }
+  inp.addEventListener('blur', save);
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') inp.blur();
+    if (e.key === 'Escape') { inp.value = cur; inp.blur(); }
+  });
+}
+</script>
+</body>
+</html>
