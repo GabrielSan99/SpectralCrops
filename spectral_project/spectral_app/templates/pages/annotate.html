@@ -224,7 +224,7 @@
 {% include 'partials/sidebar.html' %}
 
 <header>
-  <a class="back-btn" href="{% url 'analysis' %}">← Voltar</a>
+  <a class="back-btn" href="{% url 'annotations_list' %}">← Voltar</a>
   <h2>{{ acq.name|default:acq.id }}</h2>
   <span class="counter">{{ current }} / {{ total }}</span>
   {% if prev_id %}<button class="nav-btn" onclick="navigate({{ prev_id }})">‹ Anterior</button>{% else %}<button class="nav-btn" disabled>‹ Anterior</button>{% endif %}
@@ -316,13 +316,13 @@
   let point_labels = JSON.parse(document.getElementById('data-point-labels').textContent);
 
   const URLS = {
-    save:      '/analysis/annotate/' + ACQ_ID + '/save/',
-    otsu:      '/analysis/annotate/' + ACQ_ID + '/auto/otsu/',
-    boxpoly:   '/analysis/annotate/' + ACQ_ID + '/auto/boxes_to_polygons/',
-    det:       '/analysis/annotate/' + ACQ_ID + '/auto/det/',
-    yolo:      '/analysis/annotate/' + ACQ_ID + '/auto/yolo/',
-    classify:  '/analysis/annotate/' + ACQ_ID + '/auto/classify/',
-    computeRois: '/analysis/annotate/' + ACQ_ID + '/rois/compute/',
+    save:      '/annotations/' + ACQ_ID + '/save/',
+    otsu:      '/annotations/' + ACQ_ID + '/auto/otsu/',
+    boxpoly:   '/annotations/' + ACQ_ID + '/auto/boxes_to_polygons/',
+    det:       '/annotations/' + ACQ_ID + '/auto/det/',
+    yolo:      '/annotations/' + ACQ_ID + '/auto/yolo/',
+    classify:  '/annotations/' + ACQ_ID + '/auto/classify/',
+    computeRois: '/annotations/' + ACQ_ID + '/rois/compute/',
   };
   function apiGET(url) { return fetch(url).then(r => r.json().then(d => ({ ok: r.ok, data: d }))); }
   function apiJSON(url, obj) {
@@ -805,7 +805,7 @@
   function navigate(id) {
     syncLabelsFromInputs();
     if (boxes.length>0||polygons.length>0||points.length>0) saveAnnotations();
-    window.location.href = '/analysis/annotate/' + id + '/';
+    window.location.href = '/annotations/' + id + '/';
   }
 
   function flashSaved() {

@@ -155,6 +155,41 @@ def require_calibrations(view_func):
     return wrapper
 
 
+def _project_locked(project):
+    """True se o projeto ja tem pelo menos 1 aquisicao de dados salva --
+    dai pra frente, filtros/camera/iluminacao/calibracoes ficam travados
+    (somente leitura) NESSE projeto pra sempre, garantindo que TODA
+    aquisicao dele sempre bateu com a MESMA calibracao/parametrizacao (sem
+    isso, dava pra mudar exposicao/LED ou recalibrar no meio de uma serie de
+    coletas e invalidar silenciosamente dados ja salvos, sem nenhum aviso).
+    Pra mudar qualquer parametro depois de travado, o caminho e criar um
+    projeto novo (ver project_create, que clona filtros/LEDs/camera do
+    projeto de origem pra nao ter que reconfigurar tudo de novo).
+
+    Calculado na hora, nao e um campo no banco -- se o usuario apagar a(s)
+    unica(s) aquisicao(oes) do projeto, ele volta a destravar sozinho."""
+    if not project:
+        return False
+    return DataAcquisition.objects.filter(project=project).exists()
+
+
+def require_unlocked(view_func):
+    """Gate de API: recusa (JSON 409) qualquer mudanca de parametrizacao se o
+    projeto ativo ja estiver travado (ver _project_locked) -- protege as
+    rotas de filtro/camera/LED/calibracao mesmo se alguem chamar a API
+    direto, nao so escondendo o controle na tela."""
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        project = _get_active_project(request)
+        if _project_locked(project):
+            return JsonResponse({"ok": False,
+                "error": "Projeto travado — já tem aquisição de dados salva. Crie um "
+                         "projeto novo pra mudar parâmetros de câmera, iluminação ou calibração."},
+                status=409)
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
 # ─────────────────────────────────────────────────────────────
 # Nomeacao padrao de tudo que e salvo em projects/ (aquisicoes e capturas de
 # parametrizacao): <timestamp>-<projeto>-<rotulo>. Pras capturas de
@@ -949,7 +984,8 @@ def parameterization(request):
     return render(request, "pages/parameterization.html",
                   {"filters": filters, "bands": bands, "cal": cal, "refl": refl, "refl0": refl0,
                    "cam": cam, "project": project, "led_stabilize_seconds": LED_STABILIZE_SECONDS,
-                   "refl_stale": refl_stale, "refl0_stale": refl0_stale})
+                   "refl_stale": refl_stale, "refl0_stale": refl0_stale,
+                   "locked": _project_locked(project)})
 
 
 @login_required
@@ -967,6 +1003,7 @@ def param_motor(request):
 
 
 @login_required
+@require_unlocked
 def param_save(request):
     """Salva nome/steps dos 6 filtros e a intensidade das 8 bandas, do
     projeto ativo."""
@@ -1007,6 +1044,7 @@ def param_save(request):
 
 
 @login_required
+@require_unlocked
 def param_camera_save(request):
     """Salva e aplica na camera de verdade os controles V4L2/UVC. Espera JSON
     com os mesmos nomes de campo de CameraSettings; campos omitidos mantem o
@@ -1036,6 +1074,7 @@ def param_camera_save(request):
 
 
 @login_required
+@require_unlocked
 def param_camera_reset(request):
     """Restaura os controles V4L2/UVC pros valores de fabrica e aplica na camera."""
     if request.method != 'POST':
@@ -1116,6 +1155,7 @@ def _qr_debug_payload(frame, points=None):
 
 
 @login_required
+@require_unlocked
 def param_geo_frame(request):
     """Acende um LED (GEO_CAL_LED_NM por padrao, ou a banda escolhida no POST
     -- a caixa e fechada/escura, sem isso o QR nao aparece exposto o
@@ -1218,6 +1258,7 @@ def param_geo_frame(request):
 
 
 @login_required
+@require_unlocked
 def param_reflectance_capture(request):
     """Tira uma foto por banda (LED_BANDS, brilho cheio) e guarda os frames em
     memoria (processo do Django). Retorna a foto da banda REFL_BASE_BAND (como
@@ -1299,6 +1340,7 @@ def param_reflectance_capture(request):
 
 
 @login_required
+@require_unlocked
 def param_reflectance_compute(request):
     """Recebe a bbox (pixels, na imagem da banda REFL_BASE_BAND) escolhida pelo
     usuario; calcula a media de cada banda dentro dela e salva a calibracao."""
@@ -1352,6 +1394,7 @@ def param_reflectance_compute(request):
 
 
 @login_required
+@require_unlocked
 def param_reflectance_zero(request):
     """Referencia escura (0%): 1 foto por banda, LEDs sempre apagados, mas
     cada foto tirada sob a MESMA exposicao manual configurada pra essa banda
@@ -1425,6 +1468,7 @@ def param_reflectance_zero(request):
 
 
 @login_required
+@require_unlocked
 def param_band_auto_expose(request):
     """Acende cada banda (no brilho ja configurado), deixa a exposicao
     automatica da camera convergir pra ela e SALVA o valor que a camera
@@ -1485,6 +1529,9 @@ def param_band_auto_expose(request):
 @require_calibrations
 def data_acquisition(request):
     project = _get_active_project(request)
+    # se ainda nao existe NENHUMA aquisicao, salvar essa vai travar o projeto
+    # (ver _project_locked) -- a tela avisa com um modal antes de confirmar
+    is_first_acquisition = not DataAcquisition.objects.filter(project=project).exists()
     acq = DataAcquisition.objects.filter(project=project).first()   # aquisicao mais recente DESSE projeto
     bands = [{"nm": nm, "color": LED_COLORS[nm]} for nm in LED_BANDS]
     acq_images = []
@@ -1504,7 +1551,8 @@ def data_acquisition(request):
             rgb_url = f"{settings.MEDIA_URL}acquisitions/{acq.folder}/rgb.png"
     return render(request, "pages/data_acquisition.html",
                   {"acq": acq, "bands": bands, "acq_images": acq_images, "project": project,
-                   "led_stabilize_seconds": LED_STABILIZE_SECONDS, "rgb_url": rgb_url})
+                   "led_stabilize_seconds": LED_STABILIZE_SECONDS, "rgb_url": rgb_url,
+                   "is_first_acquisition": is_first_acquisition})
 
 
 def _normalize_frame(frame, white_mean, dark_mean):
@@ -1857,6 +1905,52 @@ def _roi_mean(gray, contour):
     return float(vals.mean()) if vals.size else None
 
 
+def _roi_area_px(contour):
+    """Area (em px^2) do ROI descrito por `contour` -- None pra "point" (nunca
+    capturou um contorno de verdade, so um raio fixo de amostragem em torno
+    de um clique). "box" e area trivial (largura x altura); circle/ellipse/
+    polygon usam a formula do poligono (shoelace) nos pontos -- funciona pra
+    QUALQUER forma fechada, incluindo a elipse/circulo do Annotate (ja
+    viram poligono de 32 pontos por baixo do capo, ver ANNOTATE_ELLIPSE_PTS),
+    sem precisar assumir nada sobre orientacao."""
+    kind = contour.get("shape")
+    if kind == "box":
+        return abs(contour["x2"] - contour["x1"]) * abs(contour["y2"] - contour["y1"])
+    if kind == "point":
+        return None
+    pts = contour.get("points") or []
+    if len(pts) < 3:
+        return None
+    area2 = 0.0
+    n = len(pts)
+    for i in range(n):
+        x0, y0 = pts[i]
+        x1, y1 = pts[(i + 1) % n]
+        area2 += x0 * y1 - x1 * y0
+    return abs(area2) / 2.0
+
+
+def _roi_bbox_px(contour):
+    """(largura, altura) em px da caixa delimitadora ALINHADA AOS EIXOS DA
+    IMAGEM (nao ao eixo natural do objeto) -- maior distancia em x e em y
+    entre os pontos do contorno. So uma REFERENCIA aproximada, nao uma
+    medida precisa de comprimento/largura: se o objeto estiver rotacionado
+    em relacao a camera, os dois valores ficam inflados (decisao consciente,
+    ver conversa sobre ROIMeasurement.bbox_width_px/height_px). (None, None)
+    pra "point" (mesmo motivo de _roi_area_px)."""
+    kind = contour.get("shape")
+    if kind == "box":
+        return abs(contour["x2"] - contour["x1"]), abs(contour["y2"] - contour["y1"])
+    if kind == "point":
+        return None, None
+    pts = contour.get("points") or []
+    if len(pts) < 2:
+        return None, None
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return max(xs) - min(xs), max(ys) - min(ys)
+
+
 def _roi_reflectance_pct(raw, white, dark):
     """None quando: a faixa (branco-escuro) e curta demais pra confiar (ver
     MIN_REFLECTANCE_RANGE); o bruto da amostra ou do proprio branco de
@@ -1916,6 +2010,7 @@ def roi_measurement_compute(request, acq_id):
     refl = ReflectanceCalibration.objects.filter(project=project).first()
     refl0 = ReflectanceZeroCalibration.objects.filter(project=project).first()
     has_calibration = bool(refl and refl0)
+    geo = GeometricCalibration.objects.filter(project=project).first()  # opcional -- nao bloqueia nada
 
     rois = []   # [(method, label, contour), ...]
     for box, lbl in zip(ann.boxes, ann.labels or [""] * len(ann.boxes)):
@@ -1943,9 +2038,25 @@ def roi_measurement_compute(request, acq_id):
                 pct = _roi_reflectance_pct(raw, refl.means.get(nm), refl0.means.get(nm))
                 if pct is not None:
                     reflectance[nm] = pct
+
+        area_px = _roi_area_px(contour)
+        bbox_w_px, bbox_h_px = _roi_bbox_px(contour)
+        area_mm2 = bbox_w_mm = bbox_h_mm = None
+        if geo:
+            mm2_per_px2 = geo.mm_per_pixel ** 2
+            if area_px is not None:
+                area_mm2 = round(area_px * mm2_per_px2, 4)
+            if bbox_w_px is not None:
+                bbox_w_mm = round(bbox_w_px * geo.mm_per_pixel, 3)
+                bbox_h_mm = round(bbox_h_px * geo.mm_per_pixel, 3)
+
         rows.append(ROIMeasurement(
             project=project, acquisition=acq, method=method, index=counters[method],
-            label=lbl or "", contour=contour, means=means, reflectance=reflectance))
+            label=lbl or "", contour=contour, means=means, reflectance=reflectance,
+            area_px=round(area_px, 2) if area_px is not None else None,
+            bbox_width_px=round(bbox_w_px, 2) if bbox_w_px is not None else None,
+            bbox_height_px=round(bbox_h_px, 2) if bbox_h_px is not None else None,
+            area_mm2=area_mm2, bbox_width_mm=bbox_w_mm, bbox_height_mm=bbox_h_mm))
 
     ROIMeasurement.objects.filter(acquisition=acq).delete()
     ROIMeasurement.objects.bulk_create(rows)
@@ -2003,10 +2114,13 @@ def _acq_image_dims(acq):
 @login_required
 def project_create(request):
     """Cria um projeto. Se `source_id` vier no corpo, clona a parametrizacao
-    (filtros + intensidade dos LEDs) desse outro projeto; senao, comeca
-    zerado. Calibracoes (espacial/reflectancia) NUNCA sao clonadas -- cada
-    projeto precisa da sua propria, feita na hora, contra o setup fisico
-    atual."""
+    (filtros + intensidade/exposicao dos LEDs + Controles da Camera) desse
+    outro projeto; senao, comeca zerado. Clonar a camera importa desde que
+    projetos travados (ver _project_locked) viraram o caminho normal pra
+    mudar qualquer parametro -- sem isso, cada projeto novo forcaria
+    reconfigurar brilho/ganho/etc do zero so pra mudar uma banda. Calibracoes
+    (espacial/reflectancia) NUNCA sao clonadas -- cada projeto precisa da
+    sua propria, feita na hora, contra o setup fisico atual."""
     if request.method != 'POST':
         return JsonResponse({"error": "POST"}, status=405)
     data = json.loads(request.body or "{}")
@@ -2025,6 +2139,11 @@ def project_create(request):
         for b in BandParameter.objects.filter(project=source):
             BandParameter.objects.create(project=project, nm=b.nm, order=b.order, intensity=b.intensity,
                                          exposure_time_absolute=b.exposure_time_absolute)
+        source_cam = CameraSettings.objects.filter(project=source).first()
+        if source_cam:
+            cam_fields = CAMERA_INT_FIELDS + CAMERA_BOOL_FIELDS
+            CameraSettings.objects.create(project=project,
+                **{f: getattr(source_cam, f) for f in cam_fields})
     _ensure_param_rows(project)  # completa o que nao veio do clone (ou zera tudo, se nao clonou)
 
     request.session['active_project_id'] = project.id
@@ -2081,11 +2200,11 @@ def project_model_upload(request, project_id):
     return JsonResponse({"ok": True, "type": model_type, "name": f.name})
 
 
-# ── Analysis (grade de aquisicoes do projeto ativo) ───────────────────────────
+# ── Annotations (grade de aquisicoes do projeto ativo) ─────────────────────────
 
 @login_required
 @require_project
-def analysis(request):
+def annotations_list(request):
     project = _get_active_project(request)
     acquisitions = []
     all_labels = set()
@@ -2114,11 +2233,59 @@ def analysis(request):
     has_models = {"seg": bool(project and project.model_seg),
                   "det": bool(project and project.model_det),
                   "cls": bool(project and project.model_cls)}
-    return render(request, "pages/analysis.html", {
+    return render(request, "pages/annotations.html", {
         "project": project, "acquisitions": acquisitions, "total": total,
         "annotated": annotated, "progress_pct": progress_pct,
         "all_labels": sorted(all_labels), "has_models": has_models,
     })
+
+
+def _fmt_area(area_px, area_mm2):
+    """Prefere mm² (calibração espacial feita); cai pra px² quando não
+    havia calibração no momento da medição -- nunca deixa em branco à toa,
+    já que px² ainda é uma medida real, só não convertida."""
+    if area_mm2 is not None:
+        return f"{area_mm2:.2f} mm²"
+    if area_px is not None:
+        return f"{area_px:.1f} px²"
+    return "—"
+
+
+def _fmt_len(len_px, len_mm):
+    """Mesma lógica de _fmt_area, pra largura/altura da caixa delimitadora."""
+    if len_mm is not None:
+        return f"{len_mm:.2f} mm"
+    if len_px is not None:
+        return f"{len_px:.1f} px"
+    return "—"
+
+
+NO_CONDITION_LABEL = "sem grupo"  # bucket pras aquisicoes sem image_label (Annotation) definido
+
+
+def _condition_of(acq):
+    """Label da bandeja/aquisicao (Annotation.image_label) usado como GRUPO
+    EXPERIMENTAL/condicao pra agregar estatistica -- ex.: 'verde' vs 'normal'
+    num experimento com varias bandejas por condicao. NAO e o label por-ROI
+    (esse identifica a semente dentro da bandeja, ver ROIMeasurement.label) --
+    e o label da imagem inteira, ja existente e editavel em Annotations."""
+    ann = getattr(acq, 'annotation', None)
+    label = (ann.image_label if ann else "").strip()
+    return label or NO_CONDITION_LABEL
+
+
+def _agg_stats(values):
+    """n/media/desvio-padrao (amostral, ddof=1) de uma lista de numeros --
+    desvio padrao so faz sentido com pelo menos 2 valores (None com so 1)."""
+    n = len(values)
+    if n == 0:
+        return None
+    mean = sum(values) / n
+    std = None
+    if n >= 2:
+        var = sum((v - mean) ** 2 for v in values) / (n - 1)
+        std = var ** 0.5
+    return {"n": n, "mean": mean, "std": std}
 
 
 @login_required
@@ -2130,14 +2297,25 @@ def roi_measurements_view(request):
     0-255 + reflectancia %, ambos visiveis lado a lado) -- so 1 linha (bruto)
     quando nao havia calibracao no momento da medicao. As colunas
     Imagem/Metodo/ROI/Label sao mescladas (rowspan) entre as 2 linhas da
-    mesma medicao, pra nao repetir."""
+    mesma medicao, pra nao repetir.
+
+    Tambem agrega estatistica (n/media/desvio padrao por banda) por GRUPO
+    EXPERIMENTAL -- ver _condition_of/NO_CONDITION_LABEL. Serve pra
+    experimentos com varias bandejas/replicatas por condicao (ex.: 4
+    bandejas de semente verde vs 4 de semente normal, 25 sementes cada) --
+    cada ROI de cada bandeja da MESMA condicao entra na mesma estatistica."""
     project = _get_active_project(request)
     band_list = list(LED_BANDS.keys())
     rois = list(ROIMeasurement.objects.filter(project=project)
-                .select_related('acquisition')
+                .select_related('acquisition', 'acquisition__annotation')
                 .order_by('acquisition__name', 'method', 'index'))
     rows = []
+    conditions_seen = set()
+    raw_by_condition = {}    # {condicao: {banda: [valores brutos]}}
+    refl_by_condition = {}   # {condicao: {banda: [valores de reflectancia]}}
     for r in rois:
+        condition = _condition_of(r.acquisition)
+        conditions_seen.add(condition)
         base = {
             "image": r.acquisition.name or f"acq_{r.acquisition_id}",
             "acq_id": r.acquisition_id,
@@ -2145,6 +2323,10 @@ def roi_measurements_view(request):
             "method_raw": r.method,
             "index": r.index,
             "label": r.label,
+            "condition": condition,
+            "area": _fmt_area(r.area_px, r.area_mm2),
+            "bbox_w": _fmt_len(r.bbox_width_px, r.bbox_width_mm),
+            "bbox_h": _fmt_len(r.bbox_height_px, r.bbox_height_mm),
         }
         has_refl = bool(r.reflectance)
         rows.append({**base, "is_first": True, "row_span": 2 if has_refl else 1,
@@ -2154,10 +2336,31 @@ def roi_measurements_view(request):
             rows.append({**base, "is_first": False, "row_span": 1,
                          "is_reflectance": True,
                          "values": [r.reflectance.get(nm) for nm in band_list]})
+
+        for nm, v in r.means.items():
+            raw_by_condition.setdefault(condition, {}).setdefault(nm, []).append(v)
+        for nm, v in r.reflectance.items():
+            refl_by_condition.setdefault(condition, {}).setdefault(nm, []).append(v)
+
     methods = sorted({r.get_method_display() for r in rois})
+    conditions = sorted(conditions_seen)
+
+    def _stats_table(by_condition):
+        out = []
+        for cond in conditions:
+            per_band = by_condition.get(cond, {})
+            out.append({"condition": cond,
+                        "values": [_agg_stats(per_band.get(nm, [])) for nm in band_list]})
+        return out
+
+    stats_raw = _stats_table(raw_by_condition)
+    stats_refl = _stats_table(refl_by_condition)
+    has_any_refl = any(r.reflectance for r in rois)
+
     return render(request, "pages/roi_measurements.html", {
         "project": project, "bands": band_list, "rows": rows, "total": len(rois),
-        "methods": methods,
+        "methods": methods, "conditions": conditions,
+        "stats_raw": stats_raw, "stats_refl": stats_refl, "has_any_refl": has_any_refl,
     })
 
 
@@ -2179,10 +2382,13 @@ def export_roi_measurements(request):
     band_list = list(LED_BANDS.keys())
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["Imagem", "Método", "ROI", "Label", "Tipo"] + [f"{nm}nm" for nm in band_list])
+    writer.writerow(["Imagem", "Método", "ROI", "Label", "Área", "Largura (bbox)", "Altura (bbox)", "Tipo"]
+                    + [f"{nm}nm" for nm in band_list])
     n_rows = 0
     for r in rois:
-        base = [r.acquisition.name or f"acq_{r.acquisition_id}", r.get_method_display(), r.index, r.label]
+        base = [r.acquisition.name or f"acq_{r.acquisition_id}", r.get_method_display(), r.index, r.label,
+                _fmt_area(r.area_px, r.area_mm2), _fmt_len(r.bbox_width_px, r.bbox_width_mm),
+                _fmt_len(r.bbox_height_px, r.bbox_height_mm)]
         writer.writerow(base + ["bruto_0-255"] + [r.means.get(nm, "") for nm in band_list])
         n_rows += 1
         if r.reflectance:
@@ -2218,7 +2424,7 @@ def annotate_view(request, acq_id):
     active_project = _get_active_project(request)
     if acq.project_id != active_project.id:
         messages.warning(request, "Essa amostra pertence a outro projeto.")
-        return redirect('analysis')
+        return redirect('annotations_list')
     ann, _ = Annotation.objects.get_or_create(acquisition=acq)
     project = acq.project
     siblings = list(project.acquisitions.values_list('id', flat=True)) if project else [acq.id]

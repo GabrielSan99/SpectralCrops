@@ -243,9 +243,9 @@
         <span class="qa-title">Adquirir Dados</span>
         <span class="qa-sub">{% if missing_calibrations %}Complete a calibração primeiro{% else %}Capturar as 8 bandas de uma amostra{% endif %}</span>
       </a>
-      <a class="qa-btn" href="{% url 'analysis' %}">
+      <a class="qa-btn" href="{% url 'annotations_list' %}">
         <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l3-4 3 3 4-6"/></svg>
-        <span class="qa-title">Analysis</span>
+        <span class="qa-title">Annotations</span>
         <span class="qa-sub">Anotar ROIs e ver o que já foi medido</span>
       </a>
       <a class="qa-btn" href="{% url 'parameterization' %}">

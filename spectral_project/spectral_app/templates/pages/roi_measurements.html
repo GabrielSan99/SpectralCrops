@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script>(function(){try{var t=localStorage.getItem('spectralcrops-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
   <link rel="icon" type="image/png" href="{% static 'img/SpectralCrops-figure.png' %}">
-  <title>ROIs — {{ project.name }}</title>
+  <title>Analysis — {{ project.name }}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -42,6 +42,16 @@
     .toolbar input { min-width: 200px; }
 
     .table-wrap { padding: 16px 20px; overflow-x: auto; }
+    .stats-wrap { padding: 16px 20px 0; }
+    .stats-wrap h2 { font-size: 1rem; font-weight: 700; margin-bottom: 4px; }
+    .stats-hint { font-size: .8rem; color: var(--muted); margin-bottom: 12px; }
+    .stats-wrap h3 { font-size: .78rem; font-weight: 700; color: var(--muted2); text-transform: uppercase;
+                      letter-spacing: .04em; margin: 14px 0 6px; }
+    .stats-table { border-collapse: collapse; width: 100%; font-size: .82rem; background: var(--panel); }
+    .stats-table th, .stats-table td { padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: left; }
+    .stats-table th { background: var(--panel2); font-weight: 700; color: var(--muted2);
+                       text-transform: uppercase; font-size: .68rem; letter-spacing: .05em; }
+    .stat-n { color: var(--muted2); font-size: .74rem; }
     table { border-collapse: collapse; width: 100%; font-size: .82rem; background: var(--panel); }
     th, td { padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: left; }
     th { position: sticky; top: 0; background: var(--panel2); font-weight: 700; color: var(--muted2);
@@ -65,8 +75,8 @@
 {% include 'partials/sidebar.html' %}
 
 <header>
-  <a class="back-btn" href="{% url 'analysis' %}">← Analysis</a>
-  <h1>📊 Medições por ROI — {{ project.name }}</h1>
+  <a class="back-btn" href="{% url 'annotations_list' %}">← Annotations</a>
+  <h1>📊 Analysis — {{ project.name }}</h1>
   <span class="counter" id="visible-count">{{ total }} ROI(s)</span>
 </header>
 
@@ -76,7 +86,52 @@
     <option value="">Todos os métodos</option>
     {% for m in methods %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
   </select>
+  <select id="filter-condition" onchange="filterRows()" title="Grupo/condição experimental da bandeja (label da imagem, dado em Annotations)">
+    <option value="">Todas as condições</option>
+    {% for c in conditions %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+  </select>
 </div>
+
+{% if rows %}
+<div class="stats-wrap">
+  <h2>Estatística por condição</h2>
+  <p class="stats-hint">Agrega todos os ROIs de todas as bandejas com a mesma condição (label da imagem, dado em Annotations) — média ± desvio padrão por banda.</p>
+  {% if has_any_refl %}
+  <h3>Reflectância (%)</h3>
+  <div class="table-wrap">
+    <table class="stats-table">
+      <thead><tr><th>Condição</th>{% for nm in bands %}<th class="num">{{ nm }}nm</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for srow in stats_refl %}
+        <tr>
+          <td>{{ srow.condition }}</td>
+          {% for s in srow.values %}
+          <td class="num">{% if s %}{{ s.mean|floatformat:2 }}{% if s.std %} ± {{ s.std|floatformat:2 }}{% endif %} <span class="stat-n">(n={{ s.n }})</span>{% else %}—{% endif %}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  <h3>Bruto (0-255)</h3>
+  <div class="table-wrap">
+    <table class="stats-table">
+      <thead><tr><th>Condição</th>{% for nm in bands %}<th class="num">{{ nm }}nm</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for srow in stats_raw %}
+        <tr>
+          <td>{{ srow.condition }}</td>
+          {% for s in srow.values %}
+          <td class="num">{% if s %}{{ s.mean|floatformat:2 }}{% if s.std %} ± {{ s.std|floatformat:2 }}{% endif %} <span class="stat-n">(n={{ s.n }})</span>{% else %}—{% endif %}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 
 <div class="table-wrap">
   {% if rows %}
@@ -84,9 +139,13 @@
     <thead>
       <tr>
         <th>Imagem</th>
+        <th title="Grupo/condição experimental da bandeja (label da imagem, dado em Annotations)">Condição</th>
         <th>Método</th>
         <th>ROI</th>
         <th>Label</th>
+        <th class="num" title="Área do contorno (shoelace) -- medida confiável, não depende de orientação">Área</th>
+        <th class="num" title="Maior distância em X entre os pontos do contorno -- referência aproximada, não exata: infla se o objeto estiver rotacionado em relação à câmera">Largura (bbox)</th>
+        <th class="num" title="Maior distância em Y entre os pontos do contorno -- mesma ressalva da largura">Altura (bbox)</th>
         <th>Tipo</th>
         {% for nm in bands %}<th class="num">{{ nm }}nm</th>{% endfor %}
       </tr>
@@ -94,12 +153,17 @@
     <tbody>
       {% for row in rows %}
       <tr data-image="{{ row.image|lower }}" data-label="{{ row.label|lower }}" data-method="{{ row.method }}"
+          data-condition="{{ row.condition }}"
           class="{% if not row.is_first %}sub-row{% elif row.row_span == 2 %}paired-first{% endif %}">
         {% if row.is_first %}
         <td rowspan="{{ row.row_span }}"><a class="img-link" href="{% url 'annotate_view' row.acq_id %}">{{ row.image }}</a></td>
+        <td rowspan="{{ row.row_span }}">{{ row.condition }}</td>
         <td rowspan="{{ row.row_span }}">{{ row.method }}</td>
         <td class="num" rowspan="{{ row.row_span }}">{{ row.index }}</td>
         <td rowspan="{{ row.row_span }}">{{ row.label|default:"—" }}</td>
+        <td class="num" rowspan="{{ row.row_span }}">{{ row.area }}</td>
+        <td class="num" rowspan="{{ row.row_span }}">{{ row.bbox_w }}</td>
+        <td class="num" rowspan="{{ row.row_span }}">{{ row.bbox_h }}</td>
         {% endif %}
         <td><span class="badge {% if row.is_reflectance %}refl{% endif %}">{% if row.is_reflectance %}reflectância %{% else %}bruto 0-255{% endif %}</span></td>
         {% for v in row.values %}<td class="num">{{ v|default_if_none:"—" }}</td>{% endfor %}
@@ -110,7 +174,7 @@
   {% else %}
   <div class="empty">
     Nenhum ROI medido ainda neste projeto.<br>
-    Vá em <a class="img-link" href="{% url 'analysis' %}">Analysis</a>, abra uma amostra, desenhe os ROIs e clique em "📊 Calcular ROIs".
+    Vá em <a class="img-link" href="{% url 'annotations_list' %}">Annotations</a>, abra uma amostra, desenhe os ROIs e clique em "📊 Calcular ROIs".
   </div>
   {% endif %}
 </div>
@@ -119,11 +183,13 @@
 function filterRows() {
   const q = document.getElementById('search').value.toLowerCase();
   const method = document.getElementById('filter-method').value;
+  const condition = document.getElementById('filter-condition').value;
   let visible = 0;
   document.querySelectorAll('#roi-table tbody tr').forEach(tr => {
     const matchText = !q || tr.dataset.image.includes(q) || tr.dataset.label.includes(q);
     const matchMethod = !method || tr.dataset.method === method;
-    const show = matchText && matchMethod;
+    const matchCondition = !condition || tr.dataset.condition === condition;
+    const show = matchText && matchMethod && matchCondition;
     tr.style.display = show ? '' : 'none';
     if (show) visible++;
   });

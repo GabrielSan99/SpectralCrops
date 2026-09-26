@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script>(function(){try{var t=localStorage.getItem('spectralcrops-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
   <link rel="icon" type="image/png" href="{% static 'img/SpectralCrops-figure.png' %}">
-  <title>Analysis — SpectralCrops</title>
+  <title>Annotations — SpectralCrops</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -197,7 +197,7 @@
 <!-- ── Header ── -->
 <header>
   <div style="display:flex;align-items:center;gap:16px">
-    <h1>🔬 Analysis</h1>
+    <h1>🔬 Annotations</h1>
     <a class="project-pill" href="{% url 'index' %}" title="Trocar de projeto na Home">
       📁 {{ project.name|default:"Nenhum projeto selecionado" }} ▾
     </a>
@@ -226,7 +226,7 @@
   <button class="tb-btn" onclick="selectVisible()">✓ Selecionar visíveis</button>
   <button class="tb-btn" onclick="clearSelection()">✗ Limpar</button>
   <span id="sel-count"></span>
-  <a class="tb-btn" style="margin-left:auto; text-decoration:none; display:inline-flex; align-items:center;" href="{% url 'roi_measurements_view' %}">📊 Ver ROIs</a>
+  <a class="tb-btn" style="margin-left:auto; text-decoration:none; display:inline-flex; align-items:center;" href="{% url 'roi_measurements_view' %}">📊 Analysis</a>
   <button class="tb-btn" onclick="downloadSelected(this)">⬇ Baixar imagens</button>
   <button class="export-btn" onclick="openModal()">⬇ Exportar</button>
 </div>
@@ -290,7 +290,7 @@ const URLS = {
   downloadZip:  "{% url 'data_acquisition_download_zip' %}",
 };
 const MAX_ZIP_DOWNLOAD = 30;   // mesmo teto do backend (MAX_ZIP_DOWNLOAD_ACQUISITIONS em views.py)
-function labelUrl(id) { return `/analysis/annotate/${id}/label/`; }
+function labelUrl(id) { return `/annotations/${id}/label/`; }
 function deleteUrl(id) { return `/data_acquisition/${id}/delete/`; }
 function apiJSON(url, obj) {
   return fetch(url, { method: 'POST', headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },

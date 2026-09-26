@@ -145,12 +145,14 @@ class DataAcquisition(models.Model):
 
 
 class ROIMeasurement(models.Model):
-    """Media (por banda) de UM ROI dentro de uma aquisicao -- ex.: uma
-    semente, numa bandeja com 25. Cada linha e um ROI; contour ainda nao tem
-    formato fechado (json livre) -- a estrutura vai ser definida conforme o
-    editor de selecao de ROIs for desenhado. means = media bruta (0-255)
-    dentro do ROI, por banda; reflectance = a mesma leitura em %, usando a
-    calibracao 100%/0% salva no momento da medicao (vazio se nao havia)."""
+    """Medicao (por banda + geometria) de UM ROI dentro de uma aquisicao --
+    ex.: uma semente, numa bandeja com 25. Cada linha e um ROI; contour ainda
+    nao tem formato fechado (json livre) -- a estrutura vai ser definida
+    conforme o editor de selecao de ROIs for desenhado. means = media bruta
+    (0-255) dentro do ROI, por banda; reflectance = a mesma leitura em %,
+    usando a calibracao 100%/0% salva no momento da medicao (vazio se nao
+    havia). area_px/bbox_*_px e area_mm2/bbox_*_mm = tamanho do ROI (ver
+    comentario nesses campos abaixo)."""
     project = models.ForeignKey('Project', on_delete=models.CASCADE, related_name='roi_measurements')
     acquisition = models.ForeignKey(DataAcquisition, on_delete=models.CASCADE, related_name='roi_measurements')
 
@@ -174,6 +176,28 @@ class ROIMeasurement(models.Model):
     contour = models.JSONField(default=dict, blank=True)
     means = models.JSONField(default=dict)                    # {"365": 12.3, ..., "850": 45.6}
     reflectance = models.JSONField(default=dict, blank=True)
+
+    # Geometria (area + caixa delimitadora), calculada no momento do
+    # roi_measurement_compute -- SEMPRE em pixel (nao depende de calibracao);
+    # em mm/mm2 so quando havia GeometricCalibration pra esse projeto naquele
+    # momento (null se nao havia -- projeto pode nunca ter calibrado
+    # espacial, isso nao bloqueia Data Acquisition, ver _missing_calibrations).
+    # area = formula do poligono (shoelace) pra circle/ellipse/polygon, ou
+    # largura*altura pra box -- funciona pra QUALQUER forma sem assumir
+    # orientacao. bbox_width/height = maior distancia em x e em y entre os
+    # pontos do contorno (bounding box ALINHADO AOS EIXOS DA IMAGEM, nao ao
+    # eixo natural do objeto) -- por isso "bbox", nao "largura/altura da
+    # semente": se o objeto estiver rotacionado em relacao a camera, esses
+    # dois valores ficam inflados (decisao consciente do usuario, so serve
+    # de referencia aproximada, area e que e a medida confiavel). Nenhum dos
+    # dois existe pra ROI tipo "point" (nunca capturou um contorno de verdade).
+    area_px = models.FloatField(null=True, blank=True)
+    area_mm2 = models.FloatField(null=True, blank=True)
+    bbox_width_px = models.FloatField(null=True, blank=True)
+    bbox_height_px = models.FloatField(null=True, blank=True)
+    bbox_width_mm = models.FloatField(null=True, blank=True)
+    bbox_height_mm = models.FloatField(null=True, blank=True)
+
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

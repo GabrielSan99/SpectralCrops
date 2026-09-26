@@ -111,6 +111,24 @@
              font-size: 0.9rem; opacity: 0; pointer-events: none; transition: all .25s; }
     #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+    /* Modal de aviso: salvar a 1a aquisicao do projeto trava a parametrizacao
+       (ver views._project_locked) -- avisa ANTES de acontecer, nao depois. */
+    .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(16,24,40,.45); z-index: 1000;
+                       align-items: center; justify-content: center; }
+    .modal-backdrop.open { display: flex; }
+    .modal-box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+                 padding: 26px 30px; min-width: 320px; max-width: 440px;
+                 box-shadow: 0 12px 40px rgba(16,24,40,0.18); display: flex; flex-direction: column; gap: 18px; }
+    .modal-title { font-size: 1rem; font-weight: 700; color: var(--ink); }
+    .modal-msg { font-size: 0.88rem; color: var(--muted); line-height: 1.55; }
+    .modal-btns { display: flex; gap: 10px; justify-content: flex-end; }
+    .modal-cancel { background: var(--panel); color: var(--muted); border: 1px solid var(--line);
+                    padding: 7px 18px; border-radius: 7px; cursor: pointer; font-size: 0.85rem; }
+    .modal-cancel:hover { border-color: var(--muted2); color: var(--ink); }
+    .modal-confirm { background: var(--blue); color: #fff; border: none; padding: 7px 18px;
+                     border-radius: 7px; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
+    .modal-confirm:hover { background: var(--blue-hover); }
+
     @media (max-width: 900px) {
       .main { padding: 1.5rem 1.1rem 4rem 3.4rem; }
     }
@@ -187,10 +205,27 @@
   </main>
 
   <div id="toast"></div>
+
+  <div class="modal-backdrop" id="lock-modal">
+    <div class="modal-box">
+      <div class="modal-title">🔒 Esta é a primeira aquisição do projeto</div>
+      <div class="modal-msg">
+        Depois de salvar, os parâmetros de câmera, iluminação e as calibrações (reflectância e espacial) ficam
+        travados nesse projeto — garante que toda aquisição futura bate com a mesma configuração. Pra mudar
+        qualquer parâmetro depois, será preciso criar um projeto novo. Quer continuar?
+      </div>
+      <div class="modal-btns">
+        <button class="modal-cancel" onclick="closeLockModal()">Cancelar</button>
+        <button class="modal-confirm" onclick="confirmSaveAcquisition()">Salvar e travar</button>
+      </div>
+    </div>
+  </div>
+
   {{ bands|json_script:"bands-data" }}
 
 <script>
 const CSRF = '{{ csrf_token }}';
+let IS_FIRST_ACQUISITION = {{ is_first_acquisition|yesno:"true,false" }};
 const URLS = {
   streamStop: "{% url 'video_feed_stop' %}",
   acqCapture: "{% url 'data_acquisition_capture' %}",
@@ -368,10 +403,30 @@ async function acquireData(btn) {
   }
 }
 
-async function saveAcquisition(btn) {
+function saveAcquisition(btn) {
   if (!acqSession) { toast('Nada pra salvar — adquira os dados primeiro'); return; }
   const name = document.getElementById('acq-name').value.trim();
   if (!name) { toast('Dê um nome pra amostra antes de salvar'); document.getElementById('acq-name').focus(); return; }
+  // 1a aquisicao do projeto: avisa que isso vai travar a parametrizacao
+  // ANTES de salvar de verdade (ver views._project_locked), nao depois.
+  if (IS_FIRST_ACQUISITION) {
+    document.getElementById('lock-modal').classList.add('open');
+    return;
+  }
+  doSaveAcquisition(btn);
+}
+
+function closeLockModal() {
+  document.getElementById('lock-modal').classList.remove('open');
+}
+
+function confirmSaveAcquisition() {
+  closeLockModal();
+  doSaveAcquisition(document.getElementById('acqSaveBtn'));
+}
+
+async function doSaveAcquisition(btn) {
+  const name = document.getElementById('acq-name').value.trim();
   const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Salvando…';
   try {
     const d = await apiJSON(URLS.acqSave, { session: acqSession, name });
@@ -379,6 +434,7 @@ async function saveAcquisition(btn) {
     toast('Salvo ✓' + (d.name ? ' — ' + d.name : ''));
     document.getElementById('acq-save-row').style.display = 'none';
     acqSession = null;
+    IS_FIRST_ACQUISITION = false;  // proximas aquisicoes desse projeto ja nao passam mais pelo modal
   } catch (e) {
     toast('Erro ao salvar');
   } finally {

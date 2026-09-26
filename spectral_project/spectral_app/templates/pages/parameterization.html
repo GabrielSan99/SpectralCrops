@@ -65,6 +65,20 @@
     .btn-primary:not(:disabled):hover { background: var(--blue-hover); }
 
     .main > .card { margin-bottom: 1.4rem; }
+    /* Trava de projeto: <fieldset disabled> e o jeito nativo/robusto do
+       navegador de desabilitar TODOS os controles de formulario dentro dele
+       de uma vez (funciona mesmo sem JS, cobre teclado tambem, nao so
+       clique). display:contents faz o fieldset nao gerar caixa propria --
+       sem isso ele quebraria o grid de 3 colunas do .row3 (os 3 cards
+       virariam 1 item de grid so, em vez de 3). */
+    fieldset.lock-fieldset { border: none; margin: 0; padding: 0; min-width: 0; display: contents; }
+    .locked-banner {
+      background: var(--blue-soft); border: 1px solid #cddcfa; color: var(--ink);
+      padding: 12px 16px; border-radius: 10px; font-size: 0.86rem; line-height: 1.5;
+      margin-bottom: 1.2rem;
+    }
+    .locked-banner a { color: var(--blue); font-weight: 600; }
+    :root[data-theme="dark"] .locked-banner { border-color: #2a3a5c; }
     .page-body { display: flex; flex-direction: column; gap: 1.4rem;
                  max-width: 1200px; margin-inline: auto; }
     .row3 { display: grid; gap: 1.4rem; grid-template-columns: 1fr 1fr 1fr; align-items: start; }
@@ -290,6 +304,15 @@
 
     <div class="page-body">
 
+      {% if locked %}
+      <div class="locked-banner">
+        🔒 <strong>Projeto travado.</strong> Este projeto já tem aquisição de dados salva, então filtros, controles
+        de câmera, iluminação e calibrações ficam fixos daqui pra frente — garante que toda aquisição dele sempre
+        bateu com a mesma configuração. Pra mudar qualquer parâmetro, crie um projeto novo (clonando este) na
+        <a href="{% url 'index' %}">Home</a>.
+      </div>
+      {% endif %}
+
       <!-- LINHA 1: Filtros (com controles do motor na linha) -->
       <div class="card">
         <h2>Filtros (6 posições)</h2>
@@ -307,6 +330,7 @@
           <span class="limit-pill" id="limit-pill"><span class="limit-dot"></span><span id="limit-txt">Fim de curso livre</span></span>
         </div>
 
+        <fieldset class="lock-fieldset" {% if locked %}disabled{% endif %}>
         <table class="filters">
           <thead><tr><th>#</th><th>Nome do filtro</th><th>Passos</th><th></th></tr></thead>
           <tbody>
@@ -323,11 +347,13 @@
             {% endfor %}
           </tbody>
         </table>
+        </fieldset>
       </div>
 
       <!-- LINHA 2: Controles V4L2/UVC da câmera -->
       <div class="card">
         <h2>Controles da Câmera</h2>
+        <fieldset class="lock-fieldset" {% if locked %}disabled{% endif %}>
         <div class="cam-groups">
 
           <div class="cam-group">
@@ -417,6 +443,7 @@
           <button class="btn" onclick="camReset()">Restaurar padrão</button>
           <span class="cam-status" id="cam-status"></span>
         </div>
+        </fieldset>
       </div>
 
       <!-- LINHA 3: Câmera / Stream + Iluminação, no mesmo card -- a stream
@@ -439,6 +466,7 @@
             <h2>Iluminação (intensidade e exposição por banda)
               <span class="info-icon" data-tip="Tempo de exposição MANUAL dessa banda (unidade 100µs, ex.: 157 = ~15,7ms). Bandas com LED/sensor mais fraco ou mais forte raramente cabem numa exposição única sem uma saturar e outra ficar escura — ajuste cada uma pra usar quase toda a faixa 0-255 sem estourar. Usado de verdade nas capturas (calibração 100%/0% e aquisição de dados), não só no preview.">?</span>
             </h2>
+            <fieldset class="lock-fieldset" {% if locked %}disabled{% endif %}>
             <div class="band-auto-row">
               <label class="cam-toggle" id="band-auto-toggle">
                 <input type="checkbox" id="cam-auto_exposure" {% if cam.auto_exposure %}checked{% endif %}
@@ -466,6 +494,7 @@
               <span class="illum-note">O toggle acende a banda; um contador de 5s apaga sozinho. Salve cada banda no seu botão.</span>
               <button class="btn" onclick="apagarTodos()">Apagar todos</button>
             </div>
+            </fieldset>
           </div>
 
         </div><!-- /cam-illum-row -->
@@ -482,6 +511,7 @@
       </div>
       {% endif %}
       <div class="row3">
+        <fieldset class="lock-fieldset" {% if locked %}disabled{% endif %}>
 
         <!-- Calibração 100% -->
         <div class="card">
@@ -547,6 +577,7 @@
           {% if cal %}{{ cal.qr_points|json_script:"geo-points-data" }}{% endif %}
         </div>
 
+        </fieldset>
       </div><!-- /row3 -->
 
     </div><!-- /page-body -->
