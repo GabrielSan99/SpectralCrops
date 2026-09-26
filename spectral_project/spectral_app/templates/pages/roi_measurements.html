@@ -48,6 +48,9 @@
          text-transform: uppercase; font-size: .68rem; letter-spacing: .05em; }
     td.num { text-align: right; font-variant-numeric: tabular-nums; }
     tr:hover td { background: var(--blue-soft); }
+    tr.paired-first td { border-bottom: none; }  /* linha "bruto" colada na "reflectância %" logo abaixo, mesmo ROI */
+    tr.sub-row td { color: var(--muted); }
+    tr.sub-row:hover td { background: var(--blue-soft); color: var(--ink); }
     .img-link { color: var(--blue); text-decoration: none; }
     .img-link:hover { text-decoration: underline; }
     .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .72rem;
@@ -90,11 +93,14 @@
     </thead>
     <tbody>
       {% for row in rows %}
-      <tr data-image="{{ row.image|lower }}" data-label="{{ row.label|lower }}" data-method="{{ row.method }}">
-        <td><a class="img-link" href="{% url 'annotate_view' row.acq_id %}">{{ row.image }}</a></td>
-        <td>{{ row.method }}</td>
-        <td class="num">{{ row.index }}</td>
-        <td>{{ row.label|default:"—" }}</td>
+      <tr data-image="{{ row.image|lower }}" data-label="{{ row.label|lower }}" data-method="{{ row.method }}"
+          class="{% if not row.is_first %}sub-row{% elif row.row_span == 2 %}paired-first{% endif %}">
+        {% if row.is_first %}
+        <td rowspan="{{ row.row_span }}"><a class="img-link" href="{% url 'annotate_view' row.acq_id %}">{{ row.image }}</a></td>
+        <td rowspan="{{ row.row_span }}">{{ row.method }}</td>
+        <td class="num" rowspan="{{ row.row_span }}">{{ row.index }}</td>
+        <td rowspan="{{ row.row_span }}">{{ row.label|default:"—" }}</td>
+        {% endif %}
         <td><span class="badge {% if row.is_reflectance %}refl{% endif %}">{% if row.is_reflectance %}reflectância %{% else %}bruto 0-255{% endif %}</span></td>
         {% for v in row.values %}<td class="num">{{ v|default_if_none:"—" }}</td>{% endfor %}
       </tr>

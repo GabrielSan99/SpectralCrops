@@ -141,7 +141,7 @@
       <span class="led-dot"></span>
       <span class="led-name">{{ b.nm }} nm</span>
       <button class="led-toggle" onclick="toggleLed('{{ b.nm }}')">OFF</button>
-      <input class="led-slider" type="range" min="0" max="255" value="0"
+      <input class="led-slider" type="range" min="0" max="255" value="{{ b.intensity }}"
              oninput="onSlider('{{ b.nm }}', this.value)">
       <span class="led-pct">0%</span>
       <span class="led-timer"></span>

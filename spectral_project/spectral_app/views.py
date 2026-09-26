@@ -112,16 +112,21 @@ def _calibration_status(project):
 
 def _missing_calibrations(project, status=None):
     """Lista (em PT) o que falta calibrar (ou recalibrar) nesse projeto pra
-    Data Acquisition fazer sentido -- sem isso, a captura nao tem mm/px nem %
-    de reflectancia pra basear nada. Reflectancia desatualizada (parametros
-    de camera/LED mudaram depois da calibracao, ver _reflectance_stale) conta
+    Data Acquisition fazer sentido -- sem isso, a captura nao tem % de
+    reflectancia pra basear nada. Reflectancia desatualizada (parametros de
+    camera/LED mudaram depois da calibracao, ver _reflectance_stale) conta
     como faltando tambem -- os dados novos nao seriam comparaveis aos da
     calibracao antiga. `status` opcional evita recalcular _calibration_status
-    quando o chamador ja tiver ele em maos (ver views.index)."""
+    quando o chamador ja tiver ele em maos (ver views.index).
+
+    A calibracao ESPACIAL (mm/px) NAO entra aqui de proposito -- ainda nao e
+    usada em nenhuma conta de verdade (ROIMeasurement guarda tudo em pixels,
+    nao em mm), so fica disponivel pra quando isso for implementado. Pode ser
+    feita a qualquer momento, inclusive depois de ja existirem aquisicoes --
+    ela nao "revela" nada sobre fotos passadas, so passa a valer daqui pra
+    frente pra converter pixel -> mm nas medidas (ver GeometricCalibration)."""
     status = status or _calibration_status(project)
     missing = []
-    if status["geo"] != "ok":
-        missing.append("espacial")
     if status["refl"] == "missing":
         missing.append("reflectância 100%")
     elif status["refl"] == "stale":
@@ -367,22 +372,33 @@ CAPTURE_DC = 255  # brilho usado nas capturas (get_all_bands)
 # novo (usuario pediu, 3s nao estava sendo suficiente numa avaliacao mais recente).
 LED_STABILIZE_SECONDS = 3
 
-# Tempo de espera especifico pra "descobrir" a exposicao automatica de uma
-# banda (param_band_auto_expose) -- maior que LED_STABILIZE_SECONDS de
-# proposito: o algoritmo de auto-exposure sobe aos poucos (nao pula direto
-# pro valor final), e ler cedo demais pega ele no meio do caminho, nao
-# convergido -- foi o que fazia toda banda "descobrir" um valor proximo do
-# teto (5000) mesmo em bandas que deveriam precisar de bem menos. So usado
-# nesse fluxo (uma vez por banda, nao a cada captura de verdade), entao o
-# tempo extra nao pesa no dia a dia.
+# Tempo de espera pra deixar a exposicao AUTOMATICA convergir de verdade
+# antes de usar o frame -- maior que LED_STABILIZE_SECONDS de proposito: o
+# algoritmo de auto-exposure sobe aos poucos (nao pula direto pro valor
+# final), e ler cedo demais pega ele no meio do caminho, nao convergido (foi
+# o que fazia toda banda "descobrir" um valor proximo do teto/5000 em
+# param_band_auto_expose mesmo em bandas que deveriam precisar de bem menos).
+# Usado tanto la quanto na captura do QR da calibracao espacial (param_geo_frame,
+# que forca automatico pra nao depender de exposicao manual mal ajustada) --
+# nenhum dos dois roda a cada captura de verdade, entao o tempo extra nao
+# pesa no dia a dia.
 BAND_AUTO_EXPOSE_SECONDS = 8
 
 
 # Banda usada pra iluminar o ambiente na calibracao espacial (achar o QR) --
 # a caixa e fechada/escura, sem isso o QR nao aparece exposto o suficiente
-# pra ser detectado. Qualquer banda serve pra esse fim (nao afeta a medida
-# de mm/px, so precisa dar luz suficiente pro QRCodeDetector enxergar).
-GEO_CAL_LED_NM = "365"
+# pra ser detectado. Nao afeta a medida de mm/px (so precisa dar luz
+# suficiente pro detector enxergar), mas a banda importa na pratica: 660nm
+# (vermelho) e uma escolha melhor que 365nm (UV, o padrao antigo) pra
+# iluminar um QR IMPRESSO EM PAPEL comum -- LED UV costuma ser bem mais
+# fraco opticamente que um vermelho no mesmo drive, e lentes/sensores tem
+# sensibilidade normalmente pior perto do UV, exigindo exposicao enorme pra
+# um retorno de luz ainda fraco (o que factivelmente pode ter sido a causa
+# de nao conseguir ler o QR mesmo com exposicao automatica). 660nm tambem
+# ja e a banda de referencia visual usada em outras telas (REFL_BASE_BAND).
+# O usuario pode trocar a banda na propria tela de Parametrizacao -- isso
+# aqui e so o valor padrao/de fabrica.
+GEO_CAL_LED_NM = "660"
 
 # ── Calibracao de reflectancia (100%) ──────────────────────────────────
 # Captura uma foto por banda; o usuario desenha uma bounding box sobre a foto
@@ -393,8 +409,38 @@ REFL_BASE_BAND = "660"  # banda (visivel) mostrada na UI p/ desenhar a bbox
 _reflectance_capture = {}          # {"session": str, "frames": {nm: ndarray}}
 _reflectance_lock = threading.Lock()
 
+# Faixa MINIMA (branco - escuro, em niveis de cinza 0-255) pra confiar numa
+# banda calibrada. Abaixo disso, o LED daquela banda nao esta entregando luz
+# suficiente no alvo branco (visto na pratica: 590/660/730nm com uma faixa
+# de 4-12 contra 84-97 nas bandas boas) -- normalizar/calcular reflectancia
+# com um denominador desse tamanho amplifica ruido do sensor (~1-2 niveis de
+# cinza) em dezenas de vezes, produzindo imagem normalizada em ruido
+# colorido/estatico (nada a ver com a cena) e reflectancia em % sem sentido
+# (chegou a 1458% num ROI real). Bandas abaixo desse minimo NAO sao
+# normalizadas/tem reflectancia calculada -- ficam so com o valor bruto, ate
+# a calibracao (ou o hardware por tras dela) melhorar.
+MIN_REFLECTANCE_RANGE = 15
+
+# Media bruta (0-255) acima disso conta como ROI SATURADO -- o sensor e de 8
+# bits, entao uma media de ROI tao perto do teto so acontece quando quase
+# todo pixel ali ja bateu em 255 (nao e "muito claro", e clipado/sem
+# informacao real).
+SATURATION_RAW_THRESHOLD = 250
+
+# Teto de reflectancia (%) que ainda faz sentido fisico -- um pouco acima de
+# 100% cobre ruido normal de medicao, mas nao os casos vistos na pratica
+# (150-1450%). Pega tambem o ROI que NAO chegou a clipar no sensor (raw bem
+# abaixo de 255) mas ainda assim mediu mais claro que o proprio branco de
+# referencia -- normalmente reflexo especular na superficie da semente
+# (brilho pontual mais intenso que o alvo branco difuso) ou geometria/
+# intensidade de LED fortes demais pra aquele ponto -- em qualquer um dos
+# casos nao e reflectancia difusa de verdade, e SATURATION_RAW_THRESHOLD
+# sozinho nao pega (visto na pratica: raw=227.7 sem bater no teto, mas ainda
+# assim 154% -- muito acima do branco de 100%). Ver _roi_reflectance_pct.
+REFLECTANCE_MAX_PCT = 110
+
 # ultimo brilho "ligado" de cada banda, pra o toggle restaurar
-_led_last = {nm: 255 for nm in LED_BANDS}
+_led_last = {}
 
 
 def _led_set(pi, pin, dc):
@@ -688,7 +734,9 @@ def img_segmentation(request):
 # ─────────────────────────────────────────────────────────────
 @login_required
 def tests(request):
-    bands = [{"nm": nm, "pin": pin, "color": LED_COLORS[nm]}
+    project = _get_active_project(request)
+    intensity = {b.nm: b.intensity for b in BandParameter.objects.filter(project=project)} if project else {}
+    bands = [{"nm": nm, "pin": pin, "color": LED_COLORS[nm], "intensity": intensity.get(nm, 0)}
              for nm, pin in LED_BANDS.items()]
     return render(request, "pages/tests.html", {"bands": bands})
 
@@ -741,7 +789,16 @@ def tests_led(request):
         if _led_dc(pi, pin) > 0:
             _led_set(pi, pin, 0)
         else:
-            _led_set(pi, pin, _led_last.get(nm, 255))
+            # a intensidade CONFIGURADA (BandParameter, tela de Parametrizacao)
+            # sempre ganha -- _led_last (ultimo brilho usado via slider nessa
+            # mesma execucao do servidor) e so um fallback pra quando nao tem
+            # projeto ativo/banda configurada (ex.: tests.html sem projeto
+            # selecionado), senao um valor salvo antigo em memoria ficava
+            # preso na frente da configuracao de verdade pro resto do processo.
+            configured = BandParameter.objects.filter(project=project, nm=nm).values_list(
+                'intensity', flat=True).first()
+            dc = configured if configured is not None else _led_last.get(nm, 255)
+            _led_set(pi, pin, dc)
 
     dc_now = _led_dc(pi, pin)
     if dc_now > 0:
@@ -1020,11 +1077,55 @@ def _qr_mm_from_content(text):
     return float(m.group().replace(',', '.')) if m else None
 
 
+def _detect_qr(frame):
+    """Tenta detectar e decodificar um QR com dois detectores em sequencia --
+    QRCodeDetectorAruco primeiro (pipeline baseado em deteccao de ArUco,
+    bem mais robusto a angulo/distancia/foco/iluminacao reais que o
+    QRCodeDetector classico -- confirmado com QRs sinteticos rotacionados,
+    pequenos e desfocados: o classico falha sozinho em varios desses casos
+    que o Aruco resolve, e vice-versa em alguns), caindo pro classico se o
+    primeiro achar o quadrado mas nao conseguir LER o conteudo (sem
+    conteudo nao da pra saber o tamanho em mm, entao so achar os 4 cantos
+    nao basta). Se nenhum dos dois decodificar, ainda devolve os PONTOS do
+    melhor achado (se algum localizou o quadrado), pra a UI poder desenhar
+    onde ele acha que esta o QR mesmo sem ler o texto -- ajuda a diagnosticar
+    (achou a posicao mas esta desfocado? nem achou o quadrado?)."""
+    best_points = None
+    for detector in (cv2.QRCodeDetectorAruco(), cv2.QRCodeDetector()):
+        data, points, _ = detector.detectAndDecode(frame)
+        if points is not None and best_points is None:
+            best_points = points
+        if points is not None and data:
+            return data, points
+    return "", best_points
+
+
+def _qr_debug_payload(frame, points=None):
+    """Frame capturado (PNG base64) + pontos (se algum detector achou o
+    quadrado do QR, mesmo sem ler o conteudo) -- devolvido em TODA falha de
+    param_geo_frame, pra dar pro usuario/UI algo visual pra diagnosticar em
+    vez de so um texto de erro (estava escuro? o QR nem apareceu no quadro?
+    ta desfocado?)."""
+    ok_enc, buf = cv2.imencode('.png', frame)
+    image_data = f"data:image/png;base64,{base64.b64encode(buf.tobytes()).decode('ascii')}" if ok_enc else ""
+    payload = {"image_data": image_data, "width": int(frame.shape[1]), "height": int(frame.shape[0])}
+    if points is not None:
+        pts = np.array(points, dtype=float).reshape(-1, 2)
+        payload["points"] = [[round(x, 1), round(y, 1)] for x, y in pts.tolist()]
+    return payload
+
+
 @login_required
 def param_geo_frame(request):
-    """Acende o LED GEO_CAL_LED_NM (a caixa e escura, sem luz nao da pra ver
-    o QR), captura um frame, detecta o QR (tamanho no conteudo) e calcula
-    mm/pixel."""
+    """Acende um LED (GEO_CAL_LED_NM por padrao, ou a banda escolhida no POST
+    -- a caixa e fechada/escura, sem isso o QR nao aparece exposto o
+    suficiente), captura um frame EM EXPOSICAO AUTOMATICA (ver
+    capture_stabilized_auto -- mais robusto pra enxergar o QR do que
+    depender de um tempo manual mal ajustado), detecta o QR (tamanho no
+    conteudo) e calcula mm/pixel. Bandas diferentes iluminam um QR impresso
+    de jeitos bem diferentes (LED/sensor mais ou menos eficiente naquele
+    comprimento de onda) -- deixar escolher permite testar qual enxerga
+    melhor na bancada de cada um, sem precisar mudar codigo."""
     if request.method != 'POST':
         return JsonResponse({"error": "POST"}, status=405)
     project = _get_active_project(request)
@@ -1034,32 +1135,48 @@ def param_geo_frame(request):
         return JsonResponse({"ok": False,
             "error": "O stream anterior ainda está encerrando, tente de novo."}, status=503)
 
+    nm = request.POST.get('band') or GEO_CAL_LED_NM
+    if nm not in LED_BANDS:
+        nm = GEO_CAL_LED_NM
+
     pi = get_pi()
-    pin = LED_BANDS[GEO_CAL_LED_NM]
-    _cancel_led_off(GEO_CAL_LED_NM)
+    pin = LED_BANDS[nm]
+    bp = _band_capture_params(project).get(nm)
+    _cancel_led_off(nm)
     for other_pin in LED_BANDS.values():
         _led_set(pi, other_pin, 0)
     frame = None
     try:
-        _led_set(pi, pin, CAPTURE_DC)
-        frame = camera.capture_stabilized(LED_STABILIZE_SECONDS)
+        _led_set(pi, pin, bp.intensity if bp else BAND_DEFAULT_INTENSITY)
+        # exposicao SEMPRE automatica aqui, independente do tempo manual
+        # configurado pra essa banda ou do toggle do projeto -- a calibracao
+        # espacial so precisa ENXERGAR o QR bem exposto pra medir os 4 cantos
+        # em pixels, essa foto nunca entra na conta de reflectancia (que e
+        # quem precisa de exposicao fixa/comparavel entre bandas). Automatico
+        # e mais robusto contra um tempo manual mal ajustado deixando a foto
+        # escura ou estourada demais pro QRCodeDetector enxergar.
+        frame, _exposure = camera.capture_stabilized_auto(BAND_AUTO_EXPOSE_SECONDS)
     finally:
         _led_set(pi, pin, 0)
         camera.release()
     if frame is None:
         return JsonResponse({"ok": False, "error": "Sem imagem da câmera."}, status=409)
 
-    data, points, _ = cv2.QRCodeDetector().detectAndDecode(frame)
+    data, points = _detect_qr(frame)
     if points is None:
-        return JsonResponse({"ok": False,
-                             "error": "Nenhum QR detectado no frame."}, status=422)
+        return JsonResponse({"ok": False, "band": nm,
+                             "error": "Nenhum QR detectado no frame — confira se ele está visível, "
+                                      "focado e iluminado na imagem abaixo.",
+                             **_qr_debug_payload(frame)}, status=422)
 
     qr_mm = _qr_mm_from_content(data)
     if qr_mm is None or qr_mm <= 0:
-        return JsonResponse({"ok": False,
-                             "error": f"QR detectado, mas sem tamanho no conteúdo "
-                                      f"('{data}'). Codifique o lado em mm (ex.: '50')."},
-                            status=422)
+        error = (f"QR localizado, mas não deu pra ler o conteúdo ('{data}'). "
+                 f"Codifique o lado em mm (ex.: '50')." if data else
+                 "QR localizado (achei o quadrado), mas não consegui ler o conteúdo — "
+                 "pode estar desfocado, pequeno ou com reflexo. Veja a imagem abaixo e reposicione.")
+        return JsonResponse({"ok": False, "band": nm, "error": error,
+                             **_qr_debug_payload(frame, points)}, status=422)
 
     pts = np.array(points, dtype=float).reshape(-1, 2)   # 4 cantos
     sides = [float(np.linalg.norm(pts[i] - pts[(i + 1) % 4])) for i in range(4)]
@@ -1086,6 +1203,7 @@ def param_geo_frame(request):
 
     return JsonResponse({
         "ok": True,
+        "band": nm,
         "mm_per_pixel": round(mm_per_pixel, 6),
         "px_per_mm": round(px_per_mm, 4),
         "qr_mm": qr_mm,
@@ -1392,8 +1510,11 @@ def data_acquisition(request):
 def _normalize_frame(frame, white_mean, dark_mean):
     """So pra EXIBICAO: reescala o frame (BGR uint8) linearmente usando a
     referencia dessa banda -- dark_mean vira 0, white_mean vira 255. A foto
-    crua salva em disco nunca passa por isso."""
-    if white_mean is None or (white_mean - dark_mean) == 0:
+    crua salva em disco nunca passa por isso. None tambem quando a faixa
+    (branco-escuro) e curta demais pra confiar (ver MIN_REFLECTANCE_RANGE) --
+    um denominador pequeno amplifica ruido do sensor em vez de mostrar a
+    cena de verdade."""
+    if white_mean is None or (white_mean - dark_mean) < MIN_REFLECTANCE_RANGE:
         return None
     scaled = (frame.astype(np.float32) - dark_mean) / (white_mean - dark_mean) * 255.0
     return np.clip(scaled, 0, 255).astype(np.uint8)
@@ -1737,9 +1858,22 @@ def _roi_mean(gray, contour):
 
 
 def _roi_reflectance_pct(raw, white, dark):
-    if white is None or dark is None or (white - dark) == 0:
+    """None quando: a faixa (branco-escuro) e curta demais pra confiar (ver
+    MIN_REFLECTANCE_RANGE); o bruto da amostra ou do proprio branco de
+    referencia esta literalmente SATURADO no sensor (ver
+    SATURATION_RAW_THRESHOLD); ou o resultado passa de REFLECTANCE_MAX_PCT
+    (pega tambem o caso sem clipping mas ainda fisicamente implausivel --
+    normalmente reflexo especular). Em qualquer um desses casos a media do
+    ROI nao representa reflectancia difusa de verdade, entao nao faz sentido
+    devolver um numero como se fosse confiavel."""
+    if white is None or dark is None or (white - dark) < MIN_REFLECTANCE_RANGE:
         return None
-    return round((raw - dark) / (white - dark) * 100, 2)
+    if raw >= SATURATION_RAW_THRESHOLD or white >= SATURATION_RAW_THRESHOLD:
+        return None
+    pct = (raw - dark) / (white - dark) * 100
+    if pct > REFLECTANCE_MAX_PCT:
+        return None
+    return round(pct, 2)
 
 
 @login_required
@@ -1991,29 +2125,38 @@ def analysis(request):
 @require_project
 def roi_measurements_view(request):
     """Tabela com a medicao de cada ROI (imagem, metodo e numero do ROI
-    sempre juntos na mesma linha -- 'linkado', como pedido) do projeto ativo."""
+    sempre juntos na mesma linha -- 'linkado', como pedido) do projeto ativo.
+    Cada ROI vira 2 linhas na tabela quando tem reflectancia calculada (bruto
+    0-255 + reflectancia %, ambos visiveis lado a lado) -- so 1 linha (bruto)
+    quando nao havia calibracao no momento da medicao. As colunas
+    Imagem/Metodo/ROI/Label sao mescladas (rowspan) entre as 2 linhas da
+    mesma medicao, pra nao repetir."""
     project = _get_active_project(request)
     band_list = list(LED_BANDS.keys())
-    rois = (ROIMeasurement.objects.filter(project=project)
-            .select_related('acquisition')
-            .order_by('acquisition__name', 'method', 'index'))
+    rois = list(ROIMeasurement.objects.filter(project=project)
+                .select_related('acquisition')
+                .order_by('acquisition__name', 'method', 'index'))
     rows = []
     for r in rois:
-        has_refl = bool(r.reflectance)
-        values = r.reflectance if has_refl else r.means
-        rows.append({
+        base = {
             "image": r.acquisition.name or f"acq_{r.acquisition_id}",
             "acq_id": r.acquisition_id,
             "method": r.get_method_display(),
             "method_raw": r.method,
             "index": r.index,
             "label": r.label,
-            "is_reflectance": has_refl,
-            "values": [values.get(nm) for nm in band_list],
-        })
+        }
+        has_refl = bool(r.reflectance)
+        rows.append({**base, "is_first": True, "row_span": 2 if has_refl else 1,
+                     "is_reflectance": False,
+                     "values": [r.means.get(nm) for nm in band_list]})
+        if has_refl:
+            rows.append({**base, "is_first": False, "row_span": 1,
+                         "is_reflectance": True,
+                         "values": [r.reflectance.get(nm) for nm in band_list]})
     methods = sorted({r.get_method_display() for r in rois})
     return render(request, "pages/roi_measurements.html", {
-        "project": project, "bands": band_list, "rows": rows, "total": len(rows),
+        "project": project, "bands": band_list, "rows": rows, "total": len(rois),
         "methods": methods,
     })
 
@@ -2024,7 +2167,9 @@ def export_roi_measurements(request):
     Imagem | Método | ROI | Label | Tipo | <banda>nm... -- mesma ideia da
     planilha de referencia (Imagem | Método | Semente | <bandas>). CSV em vez
     de .xlsx pra nao depender de uma lib nova (openpyxl) so pra isso; abre
-    normal no Excel/LibreOffice/pandas."""
+    normal no Excel/LibreOffice/pandas. Cada ROI vira 2 linhas (bruto +
+    reflectância %) quando tinha calibração no momento da medição -- 1 linha
+    (bruto) quando não tinha, igual a tela de Medições por ROI."""
     if request.method != 'POST':
         return JsonResponse({"error": "POST"}, status=405)
     ids = (json.loads(request.body or "{}")).get('ids') or []
@@ -2035,15 +2180,16 @@ def export_roi_measurements(request):
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["Imagem", "Método", "ROI", "Label", "Tipo"] + [f"{nm}nm" for nm in band_list])
+    n_rows = 0
     for r in rois:
-        has_refl = bool(r.reflectance)
-        values = r.reflectance if has_refl else r.means
-        tipo = "reflectância_%" if has_refl else "bruto_0-255"
-        row = [r.acquisition.name or f"acq_{r.acquisition_id}", r.get_method_display(), r.index,
-               r.label, tipo] + [values.get(nm, "") for nm in band_list]
-        writer.writerow(row)
+        base = [r.acquisition.name or f"acq_{r.acquisition_id}", r.get_method_display(), r.index, r.label]
+        writer.writerow(base + ["bruto_0-255"] + [r.means.get(nm, "") for nm in band_list])
+        n_rows += 1
+        if r.reflectance:
+            writer.writerow(base + ["reflectância_%"] + [r.reflectance.get(nm, "") for nm in band_list])
+            n_rows += 1
 
-    return JsonResponse({"csv": buf.getvalue(), "count": rois.count()})
+    return JsonResponse({"csv": buf.getvalue(), "count": n_rows})
 
 
 @login_required
@@ -2082,9 +2228,16 @@ def annotate_view(request, acq_id):
     models_available = {"seg": bool(project and project.model_seg),
                         "det": bool(project and project.model_det),
                         "cls": bool(project and project.model_cls)}
+    # miniaturas das 8 bandas CRUAS (nao normalizadas) -- normalizar
+    # reescala/clampa a imagem, o que pode disfarcar saturacao real do
+    # sensor; a foto crua e o jeito confiavel de ver isso a olho.
+    band_thumbs = [{"nm": nm, "color": LED_COLORS[nm],
+                    "url": f"{settings.MEDIA_URL}acquisitions/{acq.folder}/raw/{nm}nm.png"}
+                   for nm in LED_BANDS] if acq.folder else []
     return render(request, "pages/annotate.html", {
         "acq": acq, "ann": ann,
         "ref_image_url": _acquisition_ref_image_url(acq),
+        "band_thumbs": band_thumbs,
         "prev_id": prev_id, "next_id": next_id,
         "current": idx + 1, "total": len(siblings),
         "models": models_available,

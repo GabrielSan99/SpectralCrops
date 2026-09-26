@@ -521,7 +521,17 @@
 
         <!-- Calibração espacial -->
         <div class="card">
-          <h2>Calibração espacial</h2>
+          <h2>Calibração espacial
+            <span class="info-icon" data-tip="Banda de LED usada só pra iluminar a cena e enxergar o QR -- não afeta a medida de mm/px. Bandas diferentes iluminam um QR impresso de jeitos bem diferentes (LED/sensor mais ou menos eficiente naquele comprimento de onda); se não estiver detectando, tente outra.">?</span>
+          </h2>
+          <div class="cam-row cam-row-select" style="margin-bottom:0.7rem;">
+            <label for="geo-band">Banda (iluminação)</label>
+            <select class="cam-select" id="geo-band">
+              {% for b in bands %}
+              <option value="{{ b.nm }}" {% if b.nm == "660" %}selected{% endif %}>{{ b.nm }} nm</option>
+              {% endfor %}
+            </select>
+          </div>
           <div class="geo-imgwrap" id="geo-wrap">
             <img id="cal-img" alt="Imagem de calibração"
                  {% if cal and cal.image %}src="{{ cal.image.url }}"{% endif %}
@@ -1013,10 +1023,11 @@ async function geoFrame() {
     if (!(await streamOff())) { btn.disabled = false; btn.textContent = orig; return; }
   }
   try {
-    const d = await api(URLS.geoFrame);
+    const band = document.getElementById('geo-band').value;
+    const d = await api(URLS.geoFrame, { band });
     if (d.ok) {
       el.style.color = d.tilted ? '#b45309' : 'var(--green)';
-      el.textContent = `${d.px_per_mm} px/mm · ${d.mm_per_pixel} mm/px · QR ${d.qr_mm}mm = ${d.qr_px}px · lados ±${d.deviation_pct}%`
+      el.textContent = `${d.band}nm · ${d.px_per_mm} px/mm · ${d.mm_per_pixel} mm/px · QR ${d.qr_mm}mm = ${d.qr_px}px · lados ±${d.deviation_pct}%`
         + (d.tilted ? '  ⚠ QR inclinado, reposicione' : '');
       if (d.image_url) {
         const img = document.getElementById('cal-img');
@@ -1028,8 +1039,17 @@ async function geoFrame() {
       toast('Calibração salva ✓');
     } else {
       el.style.color = '#b42318';
-      el.textContent = d.error || 'Falha na captura';
-      toast('Falha na calibração');
+      el.textContent = (d.band ? `[${d.band}nm] ` : '') + (d.error || 'Falha na captura');
+      // mostra o frame capturado mesmo na falha -- pra diagnosticar visualmente
+      // (escuro demais? o QR nem apareceu? desfocado?) em vez de só um texto de erro
+      if (d.image_data) {
+        const img = document.getElementById('cal-img');
+        img.src = d.image_data;
+        img.style.display = 'block';
+        document.getElementById('cal-ph').style.display = 'none';
+        whenImgReady(img, () => drawGeoQuad(d.points || [], d.width, d.height));
+      }
+      toast('Falha na calibração — veja a foto capturada, tente outra banda');
     }
   } catch (e) {
     el.style.color = '#b42318'; el.textContent = 'Erro na captura'; toast('Erro');
@@ -1073,8 +1093,7 @@ function setBandOn(nm, on) {
   row.querySelector('.band-toggle').textContent = on ? 'ON' : 'OFF';
 }
 function bandOn(nm) {
-  let dc = bandIntensity(nm);
-  if (dc <= 0) { dc = 255; setBandValue(nm, dc); }  // estava em 0 -> liga no maximo
+  const dc = bandIntensity(nm);
   bandPreview[nm] = true; setBandOn(nm, true);
   api(URLS.led, { band: nm, brightness: dc });
   startBandCountdown(nm);
