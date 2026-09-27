@@ -1,0 +1,573 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>(function(){try{var t=localStorage.getItem('spectralcrops-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+  <link rel="icon" type="image/png" href="{% static 'img/SpectralCrops-figure.png' %}">
+  <title>Machine Learning — {{ active_project.name }}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f4f6f8; --panel: #ffffff; --panel2: #f7f9fb; --line: #e6e9ee;
+      --ink: #1f2937; --muted: #8a93a2; --muted2: #6b7280;
+      --blue: #2f66e0; --blue-soft: #eaf0fd; --blue-hover: #2557c4;
+      --green: #2f9e5f; --hover: #f1f3f7;
+    }
+    :root[data-theme="dark"] {
+      --bg: #0f1117; --panel: #1a1d27; --panel2: #12151e; --line: #2a2d3a;
+      --ink: #e5e7eb; --muted: #6f7688; --muted2: #a4abbd;
+      --blue: #4f8ef7; --blue-soft: #16233d; --blue-hover: #6ba2f9;
+      --green: #34d399; --hover: #222739;
+    }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--ink);
+      display: flex; min-height: 100vh;
+      transition: background .2s, color .2s;
+    }
+    .main { flex: 1; padding: 2.6rem 3rem 2.6rem 3.6rem; overflow-y: auto; max-width: 900px; }
+    .page-title { font-size: 1.7rem; font-weight: 700; letter-spacing: -0.01em; display: flex; align-items: center; gap: 12px; }
+    .page-sub { color: var(--muted2); font-size: 1rem; margin-top: 0.6rem; line-height: 1.5; max-width: 640px; }
+    .proj-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; font-weight: 600;
+                color: var(--muted2); background: var(--panel2); border: 1px solid var(--line);
+                padding: 4px 12px; border-radius: 999px; margin-top: 1rem; }
+
+    .card {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+      padding: 1.5rem 1.6rem; box-shadow: 0 1px 2px rgba(16,24,40,0.04); margin-top: 1.6rem;
+    }
+    .card h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 0.3rem; }
+    .card .hint { font-size: 0.85rem; color: var(--muted2); margin-bottom: 1.2rem; line-height: 1.5; }
+
+    .model-row {
+      display: flex; align-items: center; gap: 12px; padding: 14px 14px;
+      border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px;
+      background: var(--panel2);
+    }
+    .model-info { flex: 1; min-width: 0; }
+    .model-badge { font-size: 0.7rem; font-weight: 700; padding: 3px 9px; border-radius: 6px;
+                   flex-shrink: 0; letter-spacing: .04em; }
+    .model-badge-seg { background: #e0f2fe; color: #0369a1; }
+    .model-badge-det { background: #fef3c7; color: #92400e; }
+    .model-badge-cls { background: #dcfce7; color: #166534; }
+    .model-name { font-size: 0.92rem; font-weight: 700; margin-bottom: 2px; }
+    .model-usage { font-size: 0.78rem; color: var(--muted2); line-height: 1.4; }
+    .model-path { font-size: 0.78rem; color: var(--muted2); overflow: hidden; text-overflow: ellipsis;
+                  white-space: nowrap; margin-top: 4px; }
+    .model-path.has-model { color: var(--ink); font-weight: 600; }
+    .model-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .model-actions input[type=file] { max-width: 140px; font-size: 0.72rem; }
+    .model-actions input[type=number] { width: 56px; padding: 6px 8px; border: 1px solid var(--line);
+                                          border-radius: 7px; font-size: 0.8rem; font-family: inherit;
+                                          background: var(--panel); color: var(--ink); }
+    .model-anchor { font-size: 0.8rem; color: var(--blue); text-decoration: none; font-weight: 600; flex-shrink: 0; }
+    .model-anchor:hover { text-decoration: underline; }
+
+    .btn {
+      border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+      border-radius: 9px; padding: 8px 14px; font-size: 0.85rem; font-weight: 500;
+      cursor: pointer; transition: background .15s, border-color .15s; text-decoration: none;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .btn:hover { background: var(--hover); border-color: var(--blue); }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+    .btn-primary:hover { background: var(--blue-hover); }
+
+    .empty-state { text-align: center; padding: 3rem 1rem; color: var(--muted2); }
+    .empty-state .icon { font-size: 2.4rem; margin-bottom: 0.6rem; }
+
+    /* ── Classificação: dataset / hiperparametros / resultados ── */
+    .warn-box { background: #fef3e0; border: 1px solid #fde3b8; color: #92400e; border-radius: 10px;
+                padding: 12px 14px; font-size: 0.85rem; line-height: 1.5; }
+    :root[data-theme="dark"] .warn-box { background: #241a0a; border-color: #5c4318; color: #fbbf6b; }
+    .warn-box a { color: inherit; font-weight: 700; text-decoration: underline; }
+    .dataset-summary { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1.2rem; }
+    .class-pill { font-size: 0.78rem; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+                  background: var(--panel2); border: 1px solid var(--line); color: var(--ink); }
+
+    .step-block { padding: 1rem 0; border-top: 1px solid var(--line); }
+    .step-block:first-of-type { border-top: none; padding-top: 0; }
+    .step-title { display: flex; align-items: center; gap: 10px; font-size: 0.92rem; font-weight: 700;
+                  margin-bottom: 12px; }
+    .step-num { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+                border-radius: 50%; background: var(--blue-soft); color: var(--blue); font-size: 0.78rem;
+                font-weight: 700; flex-shrink: 0; }
+    .step-optional { font-size: 0.76rem; font-weight: 500; color: var(--muted2); }
+    .algo-desc { font-size: 0.8rem; color: var(--muted2); line-height: 1.5; margin-top: 8px; }
+    .param-desc { font-size: 0.75rem; color: var(--muted2); margin-top: 4px; line-height: 1.4; }
+
+    .param-row { margin-bottom: 14px; }
+    .param-row > label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--muted2); margin-bottom: 6px; }
+    .param-row select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+                         font-size: 0.88rem; font-family: inherit; background: var(--panel); color: var(--ink); }
+    .param-inline { display: flex; align-items: center; gap: 10px; }
+    .param-inline input[type=range] { flex: 1; accent-color: var(--blue); }
+    .param-value { font-size: 0.82rem; font-weight: 700; color: var(--blue); min-width: 46px; text-align: right; }
+    .param-check { display: flex; align-items: center; gap: 6px; font-size: 0.76rem; color: var(--muted2); white-space: nowrap; }
+
+    .estimate-row { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted2);
+                    margin: 16px 0; padding: 10px 12px; background: var(--panel2); border-radius: 8px; }
+    .estimate-row strong { color: var(--ink); }
+
+    .cls-results { margin-top: 1.4rem; padding-top: 1.2rem; border-top: 1px solid var(--line); }
+    .cls-results h4 { font-size: 0.78rem; font-weight: 700; color: var(--muted2); text-transform: uppercase;
+                       letter-spacing: .03em; margin: 1.1rem 0 0.7rem; }
+    .cls-results h4:first-child { margin-top: 0; }
+    .result-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.8rem; }
+    .result-metric { background: var(--panel2); border-radius: 10px; padding: 0.9rem 0.6rem; text-align: center; }
+    .result-metric .value { font-size: 1.25rem; font-weight: 700; }
+    .result-metric .label { font-size: 0.7rem; color: var(--muted2); text-transform: uppercase;
+                              letter-spacing: .04em; margin-top: 4px; }
+    .trained-badge { font-size: 0.8rem; color: var(--muted2); margin-top: 10px; }
+
+    .cm-table { border-collapse: collapse; font-size: 0.8rem; width: 100%; }
+    .cm-table th, .cm-table td { padding: 6px 8px; border: 1px solid var(--line); text-align: center; }
+    .cm-table th { background: var(--panel2); font-weight: 700; }
+    .cm-table td.diag { background: #e3f6e9; font-weight: 700; }
+    :root[data-theme="dark"] .cm-table td.diag { background: #133024; }
+
+    .fi-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; font-size: 0.8rem; }
+    .fi-bar-row .fi-band { width: 52px; flex-shrink: 0; font-weight: 600; }
+    .fi-bar-track { flex: 1; height: 14px; background: var(--panel2); border-radius: 999px; overflow: hidden; }
+    .fi-bar-fill { height: 100%; border-radius: 999px; }
+    .fi-bar-row .fi-pct { width: 46px; text-align: right; color: var(--muted2); flex-shrink: 0; }
+
+    @media (max-width: 900px) {
+      .main { padding: 1.6rem 1.2rem 1.6rem 3.6rem; }
+    }
+    @media (max-width: 620px) {
+      .model-row { flex-wrap: wrap; }
+      .result-metrics { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  {% include 'partials/sidebar.html' %}
+
+  <main class="main">
+    <h1 class="page-title">🤖 Machine Learning</h1>
+    <p class="page-sub">Modelos usados pelo botão "🤖 IA" dentro de Annotations: segmentação/detecção automática (YOLO) e classificação da condição de um ROI pela assinatura espectral dele.</p>
+    {% if active_project %}
+    <span class="proj-tag">📁 {{ active_project.name }}</span>
+    {% endif %}
+
+    {% if active_project %}
+    <div class="card">
+      <h3>Modelos do projeto</h3>
+      <p class="hint">Cada projeto tem seus próprios modelos — enviar/treinar aqui não afeta outros projetos.</p>
+
+      <div class="model-row">
+        <span class="model-badge model-badge-seg">SEG</span>
+        <div class="model-info">
+          <div class="model-name">Segmentação</div>
+          <div class="model-usage">Gera o contorno (polígono) de cada semente automaticamente. Treina fora do Pi — ver "Empacotar dataset" abaixo.</div>
+          <div class="model-path" id="mpath-seg">carregando…</div>
+        </div>
+        <div class="model-actions">
+          <input type="file" id="mfile-seg" accept=".pt">
+          <button class="btn" onclick="uploadModel('seg')">Enviar</button>
+        </div>
+      </div>
+
+      <div class="model-row">
+        <span class="model-badge model-badge-det">DET</span>
+        <div class="model-info">
+          <div class="model-name">Detecção</div>
+          <div class="model-usage">Gera caixas delimitadoras (bounding boxes) ao redor de cada semente. Treina fora do Pi — ver "Empacotar dataset" abaixo.</div>
+          <div class="model-path" id="mpath-det">carregando…</div>
+        </div>
+        <div class="model-actions">
+          <input type="file" id="mfile-det" accept=".pt">
+          <button class="btn" onclick="uploadModel('det')">Enviar</button>
+        </div>
+      </div>
+
+      <div class="model-row">
+        <span class="model-badge model-badge-cls">CLS</span>
+        <div class="model-info">
+          <div class="model-name">Classificação</div>
+          <div class="model-usage">Prevê a condição/grupo experimental de um ROI pela assinatura espectral dele (não usa imagem). Treina no próprio Pi — ver "Treinar classificação" abaixo.</div>
+          <div class="model-path" id="mpath-cls">carregando…</div>
+        </div>
+        <a class="model-anchor" href="#cls-card">Treinar ↓</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Empacotar dataset (YOLO)</h3>
+      <p class="hint">O Pi não tem GPU pra treinar segmentação/detecção — o pacote pronto pra treinar fora (imagens + labels + <code>data.yaml</code>, num .zip) sai de <strong>Annotations</strong>: selecione as amostras anotadas, clique em "⬇ Exportar" e escolha Segmentação ou Detecção. Depois de treinar (ver o script em <code>tools/yolo_trainer_gui.py</code>), suba o <code>.pt</code> resultante ali em cima.</p>
+      <div class="dataset-summary">
+        <span class="class-pill">SEG: {{ seg_annotated_count }} amostra(s) com elipse/polígono</span>
+        <span class="class-pill">DET: {{ det_annotated_count }} amostra(s) com caixa</span>
+      </div>
+      <a class="btn" href="{% url 'annotations_list' %}" style="margin-top:1rem">🔬 Ir pra Annotations</a>
+    </div>
+
+    <div class="card" id="cls-card">
+      <h3>Treinar classificação (assinatura espectral)</h3>
+      <p class="hint">Usa a reflectância (%) de cada ROI já medido como entrada (8 bandas) e a condição da bandeja (definida em Annotations) como classe — sem precisar de imagem. Treina rápido, direto no Pi. Resumo do que vai acontecer: você escolhe um algoritmo, opcionalmente ajusta como ele aprende, e clica em treinar — o sistema separa uma parte dos dados pra testar se o modelo realmente aprendeu (em vez de só "decorar"), e no final guarda a versão treinada com todos os dados.</p>
+
+      <div id="cls-dataset-summary" class="dataset-summary"></div>
+      <div id="cls-not-ready" class="warn-box" hidden></div>
+
+      <div id="cls-controls" hidden>
+        <div class="step-block">
+          <div class="step-title"><span class="step-num">1</span>Escolha o algoritmo</div>
+          <div class="param-row">
+            <select id="cls-algorithm" onchange="renderAlgorithmControls()"></select>
+          </div>
+          <p class="algo-desc" id="cls-algo-desc"></p>
+        </div>
+
+        <div class="step-block">
+          <div class="step-title"><span class="step-num">2</span>Ajuste os hiperparâmetros <span class="step-optional">(opcional — os valores padrão já funcionam bem)</span></div>
+          <p class="hint" style="margin-bottom:0.8rem">Hiperparâmetro é só um nome pra "configuração do algoritmo" — coisas que você escolhe ANTES de treinar (diferente do que o modelo aprende sozinho a partir dos dados). Pode deixar como está e seguir pro passo 3.</p>
+          <div id="cls-params"></div>
+        </div>
+
+        <div class="step-block">
+          <div class="step-title"><span class="step-num">3</span>Treine e veja o resultado</div>
+          <div class="estimate-row">
+            <span>⏱ Estimativa de tempo pra esse treino:</span>
+            <strong id="cls-estimate">calculando…</strong>
+          </div>
+          <button class="btn btn-primary" id="cls-train-btn" onclick="treinarClassificador()">🚀 Treinar modelo</button>
+        </div>
+      </div>
+
+      <div id="cls-results" class="cls-results" hidden></div>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <div class="icon">📁</div>
+      <p>Nenhum projeto selecionado.</p>
+      <p>Selecione um projeto na Home pra gerenciar os modelos dele.</p>
+    </div>
+    {% endif %}
+  </main>
+
+<script>
+const CSRF = '{{ csrf_token }}';
+const ACTIVE_PROJECT_ID = {{ active_project.id|default:"null" }};
+const URLS = {
+  estimate: "{% url 'ml_classifier_estimate' %}",
+  train: "{% url 'ml_classifier_train' %}",
+};
+</script>
+{{ active_project.model_seg.name|default:""|json_script:"model-seg-name" }}
+{{ active_project.model_det.name|default:""|json_script:"model-det-name" }}
+{{ cls_model_info|json_script:"cls-model-info-data" }}
+{{ ml_algorithms|json_script:"ml-algorithms-data" }}
+{{ cls_dataset|json_script:"cls-dataset-data" }}
+{{ led_colors|json_script:"led-colors-data" }}
+
+<script>
+function projectModelUrl(id) { return '/projects/' + id + '/model/'; }
+
+(function fillModelNames() {
+  const names = {
+    seg: JSON.parse(document.getElementById('model-seg-name').textContent),
+    det: JSON.parse(document.getElementById('model-det-name').textContent),
+  };
+  ['seg', 'det'].forEach(t => {
+    const el = document.getElementById('mpath-' + t);
+    el.textContent = names[t] || 'Nenhum modelo enviado';
+    el.classList.toggle('has-model', !!names[t]);
+  });
+})();
+
+function uploadModel(type) {
+  if (!ACTIVE_PROJECT_ID) return;
+  const input = document.getElementById('mfile-' + type);
+  const file = input.files[0];
+  if (!file) { alert('Escolha um arquivo .pt primeiro.'); return; }
+  const fd = new FormData();
+  fd.append('type', type);
+  fd.append('file', file);
+  fetch(projectModelUrl(ACTIVE_PROJECT_ID), { method: 'POST', headers: { 'X-CSRFToken': CSRF }, body: fd })
+    .then(r => r.json()).then(d => {
+      if (!d.ok) { alert(d.error || 'Falha ao enviar modelo'); return; }
+      document.getElementById('mpath-' + type).textContent = d.name;
+      document.getElementById('mpath-' + type).classList.add('has-model');
+    });
+}
+
+/* ── Treino da classificação por assinatura espectral ── */
+const ML_ALGORITHMS = JSON.parse(document.getElementById('ml-algorithms-data').textContent);
+const CLS_DATASET = JSON.parse(document.getElementById('cls-dataset-data').textContent);
+const CLS_MODEL_INFO = JSON.parse(document.getElementById('cls-model-info-data').textContent);
+const LED_COLORS = JSON.parse(document.getElementById('led-colors-data').textContent);
+
+const PARAM_LABELS = {
+  n_estimators: 'Nº de árvores', max_depth: 'Profundidade máxima', min_samples_leaf: 'Mín. amostras por folha',
+  C: 'C (regularização)', kernel: 'Kernel', gamma: 'Gamma', max_iter: 'Máx. iterações',
+  n_neighbors: 'Nº de vizinhos (k)', weights: 'Peso por distância',
+};
+
+const PARAM_DESCRIPTIONS = {
+  n_estimators: 'Quantas árvores de decisão o modelo combina. Mais árvores tende a acertar mais, mas demora mais pra treinar — o padrão (100) já é um bom equilíbrio.',
+  max_depth: 'Quão "fundo" cada árvore pode crescer. Sem limite, a árvore pode se ajustar demais aos dados de treino (overfitting) se você tiver poucas amostras.',
+  min_samples_leaf: 'Quantas amostras uma árvore precisa ter, no mínimo, antes de fazer uma última divisão. Valores maiores deixam o modelo mais conservador.',
+  C: 'Quanto o modelo pode "flexibilizar" a fronteira entre as classes. Valores altos ajustam mais aos dados de treino (risco de overfitting); valores baixos generalizam mais.',
+  kernel: '"rbf" curva a fronteira entre as classes (bom pra maioria dos casos); "linear" só traça uma reta/plano; "poly" é uma curva mais flexível ainda.',
+  gamma: 'Só importa com kernel rbf/poly — o quanto cada amostra "influencia" a região ao redor dela. "scale" ajusta isso automaticamente pelos seus dados.',
+  max_iter: 'Quantas rodadas de ajuste o algoritmo tenta antes de parar. Se o treino não convergir, aumente esse valor.',
+  n_neighbors: 'Pra classificar uma amostra nova, olha pros k vizinhos mais parecidos (mesma reflectância) e vota pela classe mais comum entre eles.',
+  weights: '"uniform" dá o mesmo peso pra todos os k vizinhos; "distance" dá mais peso aos vizinhos mais parecidos (mais próximos).',
+};
+
+const ALGO_DESCRIPTIONS = {
+  random_forest: 'Combina várias árvores de decisão e usa o "voto" da maioria — robusto mesmo com poucas amostras, e mostra quanto cada banda contribuiu pra decisão (útil pra discutir no seu trabalho quais comprimentos de onda mais diferenciam as condições).',
+  svm: 'Traça a melhor fronteira possível entre as classes no espaço das 8 bandas. Costuma funcionar bem com poucas amostras e dados numéricos como esse.',
+  logistic_regression: 'O mais simples e direto dos quatro — assume que a diferença entre as classes é aproximadamente uma combinação linear das bandas. Bom ponto de partida pra comparar com os outros.',
+  knn: 'Não aprende uma "regra" propriamente — pra cada amostra nova, olha quais amostras já conhecidas têm reflectância mais parecida e copia a classe delas.',
+};
+
+let currentParams = {};
+let estimateTimer = null;
+
+function fmtSeconds(s) {
+  if (s == null) return '—';
+  if (s < 1) return Math.round(s * 1000) + 'ms';
+  if (s < 60) return s.toFixed(2) + 's';
+  const m = Math.floor(s / 60), sec = Math.round(s % 60);
+  return `${m}min ${sec}s`;
+}
+
+function renderDatasetSummary() {
+  const el = document.getElementById('cls-dataset-summary');
+  const notReady = document.getElementById('cls-not-ready');
+  const controls = document.getElementById('cls-controls');
+  el.innerHTML = '';
+  if (!CLS_DATASET.ready) {
+    notReady.hidden = false;
+    notReady.innerHTML = `⚠ ${CLS_DATASET.reason}<br><br>Pra resolver: vá em <a href="/annotations/">Annotations</a>, marque a condição (🏷) de cada bandeja e, em cada amostra, abra o editor e clique em "📊 Calcular ROIs" depois de desenhar os ROIs — isso preenche a reflectância que o treino usa.`;
+    controls.hidden = true;
+    return;
+  }
+  notReady.hidden = true;
+  controls.hidden = false;
+  const total = document.createElement('span');
+  total.className = 'class-pill';
+  total.textContent = `${CLS_DATASET.n_samples} ROIs prontos`;
+  el.appendChild(total);
+  Object.entries(CLS_DATASET.classes).forEach(([cls, n]) => {
+    const pill = document.createElement('span');
+    pill.className = 'class-pill';
+    pill.textContent = `${cls}: ${n}`;
+    el.appendChild(pill);
+  });
+}
+
+function populateAlgorithmSelect() {
+  const sel = document.getElementById('cls-algorithm');
+  Object.entries(ML_ALGORITHMS).forEach(([key, spec]) => {
+    const opt = document.createElement('option');
+    opt.value = key; opt.textContent = spec.label;
+    sel.appendChild(opt);
+  });
+}
+
+function renderAlgorithmControls() {
+  const algo = document.getElementById('cls-algorithm').value;
+  const spec = ML_ALGORITHMS[algo].params;
+  const container = document.getElementById('cls-params');
+  container.innerHTML = '';
+  currentParams = {};
+
+  const algoDesc = document.getElementById('cls-algo-desc');
+  if (algoDesc) algoDesc.textContent = ALGO_DESCRIPTIONS[algo] || '';
+
+  Object.entries(spec).forEach(([name, p]) => {
+    currentParams[name] = p.default;
+    const row = document.createElement('div');
+    row.className = 'param-row';
+    const label = document.createElement('label');
+    label.textContent = PARAM_LABELS[name] || name;
+    row.appendChild(label);
+
+    if (p.type === 'choice') {
+      const sel = document.createElement('select');
+      p.choices.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c; opt.textContent = c;
+        if (c === p.default) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.onchange = () => { currentParams[name] = sel.value; scheduleEstimate(); };
+      row.appendChild(sel);
+    } else if (p.type === 'int_or_none') {
+      const wrap = document.createElement('div');
+      wrap.className = 'param-inline';
+      const range = document.createElement('input');
+      range.type = 'range'; range.min = p.min; range.max = p.max; range.step = p.step;
+      range.value = (p.default === null) ? p.max : p.default;
+      range.disabled = (p.default === null);
+      const out = document.createElement('span');
+      out.className = 'param-value';
+      out.textContent = (p.default === null) ? 'sem limite' : p.default;
+      range.oninput = () => {
+        currentParams[name] = parseInt(range.value, 10);
+        out.textContent = range.value;
+        scheduleEstimate();
+      };
+      const chkLabel = document.createElement('label');
+      chkLabel.className = 'param-check';
+      const chk = document.createElement('input');
+      chk.type = 'checkbox'; chk.checked = (p.default === null);
+      chk.onchange = () => {
+        range.disabled = chk.checked;
+        currentParams[name] = chk.checked ? null : parseInt(range.value, 10);
+        out.textContent = chk.checked ? 'sem limite' : range.value;
+        scheduleEstimate();
+      };
+      const chkText = document.createElement('span');
+      chkText.textContent = 'Sem limite';
+      chkLabel.appendChild(chk); chkLabel.appendChild(chkText);
+      wrap.appendChild(range); wrap.appendChild(out); wrap.appendChild(chkLabel);
+      row.appendChild(wrap);
+    } else if (p.type === 'int') {
+      const wrap = document.createElement('div');
+      wrap.className = 'param-inline';
+      const range = document.createElement('input');
+      range.type = 'range'; range.min = p.min; range.max = p.max; range.step = p.step; range.value = p.default;
+      const out = document.createElement('span');
+      out.className = 'param-value'; out.textContent = p.default;
+      range.oninput = () => {
+        currentParams[name] = parseInt(range.value, 10);
+        out.textContent = range.value;
+        scheduleEstimate();
+      };
+      wrap.appendChild(range); wrap.appendChild(out);
+      row.appendChild(wrap);
+    } else if (p.type === 'float') {
+      const wrap = document.createElement('div');
+      wrap.className = 'param-inline';
+      const range = document.createElement('input');
+      range.type = 'range'; range.min = 0; range.max = 1000; range.step = 1;
+      const toSlider = v => p.log
+        ? Math.round(1000 * Math.log(v / p.min) / Math.log(p.max / p.min))
+        : Math.round(1000 * (v - p.min) / (p.max - p.min));
+      const fromSlider = s => p.log
+        ? p.min * Math.pow(p.max / p.min, s / 1000)
+        : p.min + (s / 1000) * (p.max - p.min);
+      range.value = toSlider(p.default);
+      const out = document.createElement('span');
+      out.className = 'param-value'; out.textContent = p.default;
+      range.oninput = () => {
+        const v = Math.round(fromSlider(parseFloat(range.value)) * 100) / 100;
+        currentParams[name] = v;
+        out.textContent = v;
+        scheduleEstimate();
+      };
+      wrap.appendChild(range); wrap.appendChild(out);
+      row.appendChild(wrap);
+    }
+    if (PARAM_DESCRIPTIONS[name]) {
+      const desc = document.createElement('div');
+      desc.className = 'param-desc';
+      desc.textContent = PARAM_DESCRIPTIONS[name];
+      row.appendChild(desc);
+    }
+    container.appendChild(row);
+  });
+  scheduleEstimate();
+}
+
+function scheduleEstimate() {
+  clearTimeout(estimateTimer);
+  const est = document.getElementById('cls-estimate');
+  if (est) est.textContent = 'calculando…';
+  estimateTimer = setTimeout(fetchEstimate, 400);
+}
+
+async function fetchEstimate() {
+  const algorithm = document.getElementById('cls-algorithm').value;
+  const est = document.getElementById('cls-estimate');
+  try {
+    const r = await fetch(URLS.estimate, {
+      method: 'POST', headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ algorithm, params: currentParams }),
+    });
+    const d = await r.json();
+    est.textContent = d.ok ? ('~' + fmtSeconds(d.estimated_seconds)) : (d.error || 'indisponível');
+  } catch (e) {
+    est.textContent = 'indisponível';
+  }
+}
+
+async function treinarClassificador() {
+  const algorithm = document.getElementById('cls-algorithm').value;
+  const btn = document.getElementById('cls-train-btn');
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Treinando…';
+  try {
+    const r = await fetch(URLS.train, {
+      method: 'POST', headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ algorithm, params: currentParams }),
+    });
+    const d = await r.json();
+    if (!d.ok) { alert(d.error || 'Falha ao treinar.'); return; }
+    renderResults(d.info);
+    document.getElementById('mpath-cls').textContent = ML_ALGORITHMS[d.info.algorithm].label + ' (treinado no Pi)';
+    document.getElementById('mpath-cls').classList.add('has-model');
+  } catch (e) {
+    alert('Erro ao treinar o modelo.');
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+
+function renderResults(info) {
+  const el = document.getElementById('cls-results');
+  el.hidden = false;
+  const acc = (info.cv_accuracy_mean * 100).toFixed(1);
+  const std = (info.cv_accuracy_std * 100).toFixed(1);
+  const trainedDate = new Date(info.trained_at).toLocaleString('pt-BR');
+
+  let html = `
+    <h4>Resultado (validação cruzada, ${info.cv_folds}-fold)</h4>
+    <div class="result-metrics">
+      <div class="result-metric"><div class="value">${acc}% ± ${std}%</div><div class="label">Acurácia</div></div>
+      <div class="result-metric"><div class="value">${info.n_samples}</div><div class="label">ROIs usados</div></div>
+      <div class="result-metric"><div class="value">${fmtSeconds(info.train_seconds)}</div><div class="label">Tempo de treino</div></div>
+    </div>
+    <div class="trained-badge">${ML_ALGORITHMS[info.algorithm].label} — treinado em ${trainedDate}. Modelo salvo, pronto pra uso.</div>
+
+    <h4>Matriz de confusão</h4>
+    <div style="overflow-x:auto"><table class="cm-table"><thead><tr><th></th>${info.classes.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>
+      ${info.confusion_matrix.map((row, i) => `<tr><th>${info.classes[i]}</th>${row.map((v, j) => `<td class="${i === j ? 'diag' : ''}">${v}</td>`).join('')}</tr>`).join('')}
+    </tbody></table></div>
+  `;
+
+  if (info.feature_importance) {
+    const maxImp = Math.max(...info.feature_importance.map(f => f.importance), 0.0001);
+    html += `<h4>Importância por banda</h4>`;
+    info.feature_importance.forEach(f => {
+      const pct = (f.importance / maxImp) * 100;
+      const color = LED_COLORS[f.band] || 'var(--blue)';
+      html += `<div class="fi-bar-row"><span class="fi-band">${f.band}nm</span><div class="fi-bar-track"><div class="fi-bar-fill" style="width:${pct}%;background:${color}"></div></div><span class="fi-pct">${(f.importance * 100).toFixed(1)}%</span></div>`;
+    });
+  }
+  el.innerHTML = html;
+}
+
+if (document.getElementById('cls-card')) {
+  renderDatasetSummary();
+  populateAlgorithmSelect();
+  renderAlgorithmControls();
+  if (CLS_MODEL_INFO && CLS_MODEL_INFO.algorithm) {
+    renderResults(CLS_MODEL_INFO);
+    document.getElementById('mpath-cls').textContent = ML_ALGORITHMS[CLS_MODEL_INFO.algorithm].label + ' (treinado no Pi)';
+    document.getElementById('mpath-cls').classList.add('has-model');
+  } else {
+    document.getElementById('mpath-cls').textContent = 'Nenhum modelo treinado';
+  }
+}
+</script>
+</body>
+</html>

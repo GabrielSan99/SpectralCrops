@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 DEFAULT_FILTER_NAME = "Nenhum filtro relacionado"
@@ -26,8 +27,10 @@ class GeometricCalibration(models.Model):
     """Calibracao espacial mm/pixel, obtida de um QR de tamanho conhecido
     (o tamanho vem codificado no conteudo do proprio QR). Uma por projeto --
     uma nova calibracao SUBSTITUI a anterior (update_or_create em views.py),
-    nao acumula linha no banco a cada captura."""
-    project = models.OneToOneField('Project', null=True, blank=True, on_delete=models.SET_NULL,
+    nao acumula linha no banco a cada captura. on_delete=CASCADE: apagar o
+    projeto apaga a calibracao junto (ver views.project_delete e o signal
+    post_delete em signals.py, que remove o arquivo de imagem do disco)."""
+    project = models.OneToOneField('Project', null=True, blank=True, on_delete=models.CASCADE,
                                    related_name='geometric_calibration')
     mm_per_pixel = models.FloatField()
     px_per_mm = models.FloatField(default=0.0)   # pixels por mm (reciproco)
@@ -55,8 +58,9 @@ class ReflectanceCalibration(models.Model):
     e a media de intensidade de cada banda dentro da bounding box selecionada
     pelo usuario sobre a imagem de uma banda de referencia. Uma por projeto --
     uma nova calibracao SUBSTITUI a anterior (update_or_create em views.py),
-    nao acumula linha no banco a cada captura."""
-    project = models.OneToOneField('Project', null=True, blank=True, on_delete=models.SET_NULL,
+    nao acumula linha no banco a cada captura. on_delete=CASCADE: ver
+    comentario equivalente em GeometricCalibration."""
+    project = models.OneToOneField('Project', null=True, blank=True, on_delete=models.CASCADE,
                                    related_name='reflectance_calibration')
     means = models.JSONField(default=dict)   # {"365": 12.3, ..., "850": 45.6}
     bbox_x = models.PositiveIntegerField(default=0)
@@ -86,8 +90,9 @@ class ReflectanceZeroCalibration(models.Model):
     usadas na captura de verdade daquela banda, senao a conta de reflectancia
     fica inconsistente. image guarda so a foto da banda REFL_BASE_BAND, pra
     preview -- as 8 ficam em means. Uma por projeto -- uma nova calibracao
-    SUBSTITUI a anterior (update_or_create em views.py)."""
-    project = models.OneToOneField('Project', null=True, blank=True, on_delete=models.SET_NULL,
+    SUBSTITUI a anterior (update_or_create em views.py). on_delete=CASCADE:
+    ver comentario equivalente em GeometricCalibration."""
+    project = models.OneToOneField('Project', null=True, blank=True, on_delete=models.CASCADE,
                                    related_name='reflectance_zero_calibration')
     means = models.JSONField(default=dict)   # {"365": 12.3, ..., "850": 8.1}
     image = models.ImageField(upload_to='reflectance_parametrization/', blank=True)
@@ -109,15 +114,23 @@ class Project(models.Model):
     o usuario tiver algum treinado) sao enviados por upload em vez de um
     caminho local, ja que este app roda num servidor acessado pelo navegador
     (o dialogo de arquivo do tkinter do app original nao faz sentido aqui)."""
-    name = models.CharField(max_length=200, unique=True)
-    is_default = models.BooleanField(default=False)  # projeto usado como base/clone padrao (1 so por vez)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='projects')
+    name = models.CharField(max_length=200)
+    is_default = models.BooleanField(default=False)  # projeto usado como base/clone padrao (1 so por vez, POR DONO)
     model_seg = models.FileField(upload_to='models/', blank=True)  # segmentacao
     model_det = models.FileField(upload_to='models/', blank=True)  # deteccao
-    model_cls = models.FileField(upload_to='models/', blank=True)  # classificacao
+    model_cls = models.FileField(upload_to='models/', blank=True)  # classificacao (joblib scikit-learn)
+    # Metadados do ultimo treino de model_cls -- ver views.ml_classifier_train.
+    # {"algorithm":, "params":, "bands":, "classes":, "cv_folds":,
+    #  "cv_accuracy_mean":, "cv_accuracy_std":, "confusion_matrix":,
+    #  "feature_importance": [{"band":, "importance":}, ...] ou None,
+    #  "n_samples":, "trained_at": iso, "train_seconds":}
+    model_cls_info = models.JSONField(default=dict, blank=True)
     created = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["name"]
+        unique_together = [("owner", "name")]
 
     def __str__(self):
         return self.name
@@ -130,8 +143,11 @@ class DataAcquisition(models.Model):
     bandeja com o fundo e nao representava nada cientifico util; a medida de
     verdade agora e por ROI (ver ROIMeasurement, abaixo). A captura fica em
     memoria ate o usuario confirmar com um nome (ver views.py) -- created e o
-    momento do SALVAMENTO, nao da captura."""
-    project = models.ForeignKey(Project, null=True, blank=True, on_delete=models.SET_NULL,
+    momento do SALVAMENTO, nao da captura. on_delete=CASCADE: apagar o
+    projeto apaga a aquisicao (e Annotation/ROIMeasurement ligados a ela)
+    junto -- o signal post_delete em signals.py remove a pasta de imagens
+    (raw/normalized/rgb) do disco tambem, pra nao sobrar arquivo orfao."""
+    project = models.ForeignKey(Project, null=True, blank=True, on_delete=models.CASCADE,
                                 related_name='acquisitions')
     name = models.CharField(max_length=200, blank=True)
     folder = models.CharField(max_length=200, blank=True)
@@ -158,7 +174,6 @@ class ROIMeasurement(models.Model):
 
     class SelectionMethod(models.TextChoices):
         BOX = "box", "Retângulo"
-        CIRCLE = "circle", "Círculo"
         ELLIPSE = "ellipse", "Elipse"
         POLYGON = "polygon", "Polígono"
         POINT = "point", "Ponto"
@@ -171,7 +186,7 @@ class ROIMeasurement(models.Model):
     label = models.CharField(max_length=200, blank=True)      # classe/rotulo opcional desse ROI
     # geometria do ROI, no espaco de pixels da imagem de referencia (ANNOTATION_BAND):
     #  box:              {"shape": "box", "x1":.., "y1":.., "x2":.., "y2":..}
-    #  circle/ellipse/polygon: {"shape": "circle"|"ellipse"|"polygon", "points": [[x,y], ...]}
+    #  ellipse/polygon:  {"shape": "ellipse"|"polygon", "points": [[x,y], ...]}
     #  point:            {"shape": "point", "x":.., "y":..}
     contour = models.JSONField(default=dict, blank=True)
     means = models.JSONField(default=dict)                    # {"365": 12.3, ..., "850": 45.6}
@@ -182,7 +197,7 @@ class ROIMeasurement(models.Model):
     # em mm/mm2 so quando havia GeometricCalibration pra esse projeto naquele
     # momento (null se nao havia -- projeto pode nunca ter calibrado
     # espacial, isso nao bloqueia Data Acquisition, ver _missing_calibrations).
-    # area = formula do poligono (shoelace) pra circle/ellipse/polygon, ou
+    # area = formula do poligono (shoelace) pra ellipse/polygon, ou
     # largura*altura pra box -- funciona pra QUALQUER forma sem assumir
     # orientacao. bbox_width/height = maior distancia em x e em y entre os
     # pontos do contorno (bounding box ALINHADO AOS EIXOS DA IMAGEM, nao ao
@@ -220,7 +235,20 @@ class Annotation(models.Model):
                                        related_name='annotation')
     boxes = models.JSONField(default=list)          # [[x1,y1,x2,y2], ...]
     labels = models.JSONField(default=list)         # categoria de cada box
-    polygons = models.JSONField(default=list)        # [[[x,y], ...], ...] (elipses tambem viram polygon)
+    # Elipse desenhada no Annotate -- por baixo do capo ainda e uma lista de
+    # pontos (aproximacao poligonal, ver ELLIPSE_PTS/ellipseToPolygon em
+    # annotate.html), pra continuar dando pra arrastar um vertice e ajustar
+    # o formato depois de desenhar -- mas mora no seu PROPRIO campo, nunca
+    # dentro de `polygons`.
+    ellipses = models.JSONField(default=list)
+    ellipse_labels = models.JSONField(default=list)
+    # Poligono desenhado a mao (lasso) ou gerado por auto-segmentacao
+    # (Otsu/YOLO seg/boxes->poligono) -- NUNCA elipse, ver `ellipses` acima.
+    # Campo separado de proposito: antes elipse virava poligono de 32 pontos
+    # e ficava misturada no mesmo array (so um heuristico por contagem de
+    # pontos dizia qual era qual depois) -- um poligono desenhado a mao que
+    # calhasse de ter exatamente 32 pontos virava "elipse" por engano.
+    polygons = models.JSONField(default=list)        # [[[x,y], ...], ...]
     poly_labels = models.JSONField(default=list)
     points = models.JSONField(default=list)          # [[x,y], ...]
     point_labels = models.JSONField(default=list)

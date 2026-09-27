@@ -37,10 +37,11 @@ Ordem dentro de cada seção é sugestão de prioridade, não obrigação.
 
 ## B. Pontas soltas
 
-- [ ] **Remover ou ligar o link "Machine Learning"** do menu lateral
-      (`href="#"` — não leva a lugar nenhum). A funcionalidade de IA já existe
-      de verdade dentro do Annotate (botão "🤖 IA": Otsu, YOLO detecção/
-      segmentação, classificação). (`spectral_app/templates/partials/sidebar.html`)
+- [x] **Ligar o link "Machine Learning"** do menu lateral (26/09/2026) — antes
+      era `href="#"`; agora leva a uma página própria (`/machine-learning/`)
+      que administra os modelos do projeto ativo — esse gerenciamento morava
+      num modal na Home, movido de lá porque é sobre modelos, não sobre o
+      projeto em si. Ver seção E abaixo pro ambiente de treino em si.
 - [ ] **Deletar `img_segmentation`** (view + rota) — endpoint órfão do
       protótipo antigo (câmera Bluefox), não referenciado por nenhuma tela,
       sem `@login_required`, com `@csrf_exempt`, escreve arquivo em disco a
@@ -61,3 +62,56 @@ Ordem dentro de cada seção é sugestão de prioridade, não obrigação.
       Django; toda validação desta sessão foi feita com scripts manuais
       descartáveis. Prioridade: fórmula de reflectância (incl. guardas de
       saturação/faixa mínima), staleness de calibração, exposição por banda.
+
+## E. Machine Learning — ambiente de treino
+
+- [x] **Classificação por assinatura espectral (scikit-learn, treina no
+      próprio Pi)** (26/09/2026) — decisão: YOLO faz sentido pra segmentação
+      (contorno real da semente), mas pra classificar a condição de um ROI
+      já medido, a assinatura espectral (8 valores de reflectância) é mais
+      direta que imagem — e o dataset é tabular/pequeno, treina rápido sem
+      GPU. `views.ml_classifier_train`: features = `ROIMeasurement.reflectance`
+      (só ROIs com as 8 bandas E uma condição definida, ver
+      `_roi_classifier_dataset`), label = condição da bandeja (mesmo
+      `_condition_of` da página Analysis). Usuário escolhe o algoritmo
+      (Random Forest / SVM / Regressão Logística / KNN) e ajusta
+      hiperparâmetros dentro de faixas seguras (`ML_ALGORITHMS`,
+      `_clamp_params` — nunca confia em valor vindo do navegador). Valida
+      com k-fold estratificado (k = min(5, menor classe)) antes de treinar o
+      modelo final com todos os dados; salva o modelo (`joblib`) e os
+      resultados (acurácia, matriz de confusão, importância por banda) em
+      `Project.model_cls`/`model_cls_info`. `ml_classifier_estimate` cronometra
+      1 fit de verdade e multiplica por `k+1` pra estimar o tempo total ANTES
+      de treinar — tentamos extrapolar a partir de uma amostra pequena
+      primeiro, mas o custo do Random Forest é dominado pelo nº de árvores
+      (overhead de paralelismo do joblib), não pelo tamanho da amostra, e
+      isso inflava a estimativa em ~8x; medir o fit inteiro é mais lento mas
+      correto (dataset aqui é pequeno, então ainda é rápido). Isso **substitui**
+      o antigo `auto_classify` baseado em YOLO/imagem — se o CLS do projeto
+      foi treinado por esse ambiente (`model_cls_info.algorithm` é um dos
+      scikit-learn), `auto_classify` agora recusa com uma mensagem clara em
+      vez de tentar carregar o arquivo como YOLO e estourar um erro confuso;
+      a integração de verdade desse modelo treinado no botão "🤖 IA" do
+      Annotate (prever pelo ROI já medido, não pela imagem) ainda não foi
+      feita, fica pra uma próxima rodada. Card de treino ganhou passo a passo
+      numerado (1. algoritmo, 2. hiperparâmetros, 3. treinar) com descrição
+      curta de cada algoritmo/hiperparâmetro — feedback do usuário foi que a
+      versão anterior "funcionava mas não dava pra entender o fluxo".
+- [x] **Empacotar dataset YOLO (segmentação/detecção)** (26/09/2026) — treinar
+      YOLO de verdade precisa de GPU, que o Pi não tem; `views.ml_dataset_export`
+      empacota as anotações num `.zip` no formato YOLO padrão (`images/`+
+      `labels/` em `train`/`val`, split aleatório, `data.yaml`), pronto pra
+      treinar fora. Mora no botão "⬇ Exportar" de **Annotations** (escolher
+      Segmentação/Detecção ali agora baixa esse `.zip` de verdade, com
+      imagens — antes baixava só um JSON cru de coordenadas, sem imagem
+      nenhuma, inútil pra treinar direto); a página Machine Learning só
+      mostra quantas amostras estão anotadas e linka pra lá, pra não ter dois
+      fluxos fazendo a mesma coisa.
+- [x] **`tools/yolo_trainer_gui.py`** (26/09/2026) — script standalone (só
+      stdlib + `ultralytics`, não faz parte do Django nem do Pi) com uma GUI
+      Tkinter simples: escolhe o `data.yaml` extraído do `.zip`, escolhe a
+      tarefa e os hiperparâmetros (época, tamanho de imagem, batch, tamanho
+      do modelo), detecta GPU CUDA automaticamente (cai pra CPU se não
+      achar), treina em background e mostra o progresso ao vivo (inclusive
+      as barras do tqdm, sem os códigos de cor ANSI sujando o log). No final
+      abre a pasta do `best.pt` pra subir de volta em Machine Learning.

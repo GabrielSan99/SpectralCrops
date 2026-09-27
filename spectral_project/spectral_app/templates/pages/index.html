@@ -7,6 +7,7 @@
   <script>(function(){try{var t=localStorage.getItem('spectralcrops-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
   <link rel="icon" type="image/png" href="{% static 'img/SpectralCrops-figure.png' %}">
   <title>SpectralCrops</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -32,9 +33,62 @@
 
     /* ── Main ── */
     .main { flex: 1; padding: 2.6rem 3rem 2.6rem 3.6rem; overflow-y: auto; }
-    .welcome-title { font-size: 2.1rem; font-weight: 700; letter-spacing: -0.01em; }
-    .welcome-sub { color: var(--muted2); font-size: 1.05rem; margin-top: 0.5rem;
+
+    /* ── Hero (logo + "equalizador" espectral) -- DESATIVADO a pedido do usuário
+       (27/09/2026), CSS mantido comentado pra reativar rápido depois. Ver o
+       HTML correspondente comentado logo abaixo do flash-messages, envolto
+       na tag de comentário do Django.
+       AVISO PRA QUEM FOR MEXER AQUI: nao escreva a sintaxe de tag do Django
+       (abre-chave, porcento, ..., porcento, fecha-chave) por extenso dentro
+       de comentarios de texto explicativo, nem dentro de um comentario CSS
+       nem dentro de um comentario HTML -- o parser do Django varre o
+       arquivo INTEIRO atras dessa sintaxe antes de saber que esta dentro de
+       um comentario, entao um exemplo escrito por engano vira uma tag de
+       verdade (foi exatamente esse bug, duas vezes seguidas, que deixou
+       essa pagina em branco). "Equalizador":
+       decorativo, representa as 8 bandas de
+       LED acendendo fora de sincronia (duration/delay variam por
+       nth-child); pulso lento de propósito -- rápido demais competia com o
+       resto da tela em vez de só ambientar.
+    .hero-row { display: flex; align-items: center; justify-content: space-between; gap: 2.4rem; flex-wrap: wrap; }
+    .hero { display: flex; flex-direction: column; gap: 16px; flex: 1; min-width: 280px; }
+    .home-logo img { height: 104px; width: auto; display: block; }
+    .hero-bar { height: 5px; width: 200px; border-radius: 999px;
+                background: linear-gradient(90deg, #7a3cff, #5b2bd6, #2b6bff, #22c55e, #f2c200, #ef4444, #b91c1c, #6b1a1a); }
+    :root[data-theme="dark"] .hero-bar { box-shadow: 0 0 12px rgba(124,58,255,.35), 0 0 16px rgba(239,68,68,.18); }
+    .welcome-sub { color: var(--muted2); font-size: 1.05rem;
                    max-width: 620px; line-height: 1.5; }
+    .spectral-anim { display: flex; align-items: flex-end; gap: 10px; height: 110px;
+                      flex-shrink: 0; padding: 0 6px 4px; }
+    .spectral-anim .bar {
+      width: 12px; height: 45%; border-radius: 6px 6px 3px 3px;
+      background: var(--bar-color); box-shadow: 0 0 10px 1px rgba(0,0,0,0.001);
+      box-shadow: 0 0 10px color-mix(in srgb, var(--bar-color) 55%, transparent);
+      opacity: 0.9; animation: eq-pulse 5s ease-in-out infinite; transform-origin: bottom;
+    }
+    @keyframes eq-pulse {
+      0%   { height: 22%; }
+      20%  { height: 70%; }
+      40%  { height: 36%; }
+      60%  { height: 90%; }
+      80%  { height: 30%; }
+      100% { height: 22%; }
+    }
+    .spectral-anim .bar:nth-child(1) { animation-duration: 4.6s; animation-delay: 0s; }
+    .spectral-anim .bar:nth-child(2) { animation-duration: 5.8s; animation-delay: .4s; }
+    .spectral-anim .bar:nth-child(3) { animation-duration: 4.1s; animation-delay: .8s; }
+    .spectral-anim .bar:nth-child(4) { animation-duration: 6.3s; animation-delay: .15s; }
+    .spectral-anim .bar:nth-child(5) { animation-duration: 4.9s; animation-delay: .65s; }
+    .spectral-anim .bar:nth-child(6) { animation-duration: 5.4s; animation-delay: .3s; }
+    .spectral-anim .bar:nth-child(7) { animation-duration: 4.4s; animation-delay: .95s; }
+    .spectral-anim .bar:nth-child(8) { animation-duration: 6s; animation-delay: .5s; }
+    @media (prefers-reduced-motion: reduce) {
+      .spectral-anim .bar { animation: none; height: 55%; }
+    }
+    @media (max-width: 700px) {
+      .spectral-anim { display: none; }
+    }
+    ── fim do hero desativado ── */
 
     .cards {
       margin-top: 1.4rem; display: grid; gap: 1.5rem;
@@ -65,21 +119,29 @@
     .calib-fix-link:hover { text-decoration: underline; }
 
     /* Botoes de acao rapida */
-    .quick-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1.6rem; }
+    .quick-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                      gap: 1rem; margin-top: 1.6rem; }
     .qa-btn {
       display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
       background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
       padding: 1.1rem 1.3rem; text-decoration: none; color: var(--ink);
-      transition: border-color .15s, transform .1s, background .15s;
+      transition: border-color .15s, transform .1s, background .15s, box-shadow .15s;
     }
-    .qa-btn:hover { border-color: var(--blue); transform: translateY(-1px); }
-    .qa-btn svg { width: 22px; height: 22px; stroke: var(--blue); fill: none; stroke-width: 1.9;
-                  stroke-linecap: round; stroke-linejoin: round; margin-bottom: 4px; }
+    .qa-btn:hover { border-color: var(--blue); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(16,24,40,0.08); }
+    .qa-icon {
+      width: 40px; height: 40px; border-radius: 12px; background: var(--blue-soft);
+      display: flex; align-items: center; justify-content: center; margin-bottom: 6px;
+      transition: background .15s;
+    }
+    .qa-btn svg { width: 20px; height: 20px; stroke: var(--blue); fill: none; stroke-width: 1.9;
+                  stroke-linecap: round; stroke-linejoin: round; }
     .qa-btn .qa-title { font-size: 1rem; font-weight: 700; }
     .qa-btn .qa-sub { font-size: 0.78rem; color: var(--muted2); }
     .qa-btn.qa-warn { border-color: #fde3b8; background: #fef3e0; }
+    .qa-btn.qa-warn .qa-icon { background: #fce6ba; }
     .qa-btn.qa-warn svg { stroke: #92400e; }
     :root[data-theme="dark"] .qa-btn.qa-warn { border-color: #5c4318; background: #241a0a; }
+    :root[data-theme="dark"] .qa-btn.qa-warn .qa-icon { background: #3a2a10; }
     :root[data-theme="dark"] .qa-btn.qa-warn svg { stroke: #fbbf6b; }
 
     /* Status do projeto: numeros grandes */
@@ -104,7 +166,11 @@
     .acq-recent-date { font-size: 0.78rem; color: var(--muted2); margin-top: 2px; }
 
     /* Assinatura espectral */
+    .spectrum-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.6rem; }
+    .spectrum-grid h4 { font-size: 0.82rem; font-weight: 700; color: var(--muted2); margin-bottom: 0.6rem;
+                         text-transform: uppercase; letter-spacing: .03em; }
     .spectrum-caption { font-size: 0.8rem; color: var(--muted2); margin-top: 0.6rem; }
+    @media (max-width: 700px) { .spectrum-grid { grid-template-columns: 1fr; } }
 
     /* Estado vazio (nenhum projeto ativo) */
     .empty-state { text-align: center; padding: 3rem 1rem; color: var(--muted2); }
@@ -148,41 +214,113 @@
     .modal-box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
                  padding: 1.6rem 1.8rem; width: 440px; max-width: 92vw;
                  box-shadow: 0 12px 40px rgba(16,24,40,0.18); }
-    .modal-box h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 1rem; }
-    .proj-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 1.1rem; max-height: 240px; overflow-y: auto; }
-    .proj-item { display: flex; align-items: center; gap: 10px; padding: 9px 11px;
+    .modal-box h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 0; }
+    .modal-head { display: flex; align-items: center; gap: 8px; margin-bottom: 1.1rem; }
+    .modal-head h3 { flex: 1; }
+    .modal-back, .modal-x {
+      background: none; border: none; color: var(--muted2); cursor: pointer;
+      font-size: 1.05rem; line-height: 1; padding: 4px 7px; border-radius: 7px;
+      flex-shrink: 0; transition: background .15s, color .15s;
+    }
+    .modal-back:hover { color: var(--blue); background: var(--hover); }
+    .modal-x:hover { color: #dc2626; background: var(--hover); }
+
+    /* Passo 1: escolher "selecionar" ou "criar" antes de ver a tela de
+       verdade -- ver showProjStep() no JS. */
+    .proj-choice-btn {
+      display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
+      background: var(--panel2); border: 1px solid var(--line); border-radius: 12px;
+      padding: 1rem 1.1rem; cursor: pointer; font-family: inherit; color: var(--ink);
+      margin-bottom: 10px; transition: border-color .15s, transform .1s;
+    }
+    .proj-choice-btn:last-child { margin-bottom: 0; }
+    .proj-choice-btn:hover { border-color: var(--blue); transform: translateY(-1px); }
+    .choice-icon { font-size: 1.5rem; flex-shrink: 0; }
+    .choice-text { display: flex; flex-direction: column; gap: 2px; }
+    .choice-title { font-size: 0.95rem; font-weight: 700; }
+    .choice-sub { font-size: 0.78rem; color: var(--muted2); }
+
+    .proj-search-input {
+      width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+      font-size: 0.88rem; font-family: inherit; background: var(--panel); color: var(--ink);
+      margin-bottom: 10px;
+    }
+
+    /* min-height fixo no item (56px) pra altura ficar previsivel independente
+       de fonte/renderizacao -- max-height da lista = exatamente 3 itens +
+       2 gaps entre eles, o resto rola. */
+    .proj-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 1.1rem;
+                 max-height: calc(3 * 56px + 2 * 8px); overflow-y: auto; }
+    .proj-item { display: flex; align-items: center; gap: 10px; padding: 9px 11px; min-height: 56px;
                  border-radius: 9px; border: 1px solid var(--line); cursor: pointer; transition: border-color .15s; }
     .proj-item:hover { border-color: var(--blue); }
     .proj-item.active { border-color: var(--green); background: #eefaf1; }
     .proj-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--muted2); flex-shrink: 0; }
     .proj-item.active .proj-dot { background: var(--green); border-color: var(--green); }
-    .proj-name { flex: 1; font-size: 0.9rem; font-weight: 600; }
+    .proj-info { flex: 1; min-width: 0; }
+    .proj-name-row { display: flex; align-items: center; gap: 6px; }
+    .proj-name { font-size: 0.9rem; font-weight: 600; line-height: 18px;
+                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .proj-date { font-size: 0.74rem; color: var(--muted2); line-height: 14px; margin-top: 3px; }
     .proj-default-badge { font-size: 0.68rem; font-weight: 700; color: var(--green); background: #e3f6e9;
-                           padding: 1px 7px; border-radius: 10px; text-transform: uppercase; letter-spacing: .04em; }
-    .proj-del { background: none; border: none; color: var(--muted2); cursor: pointer; font-size: 1rem; padding: 2px 6px; }
+                           padding: 1px 7px; border-radius: 10px; text-transform: uppercase; letter-spacing: .04em;
+                           flex-shrink: 0; }
+    /* So aparece pro superuser (Admin), que enxerga projeto de todo mundo --
+       sem isso "Projeto inicial" e "Projeto Inicial" de donos diferentes
+       parecem duplicados. */
+    .proj-owner-badge { font-size: 0.68rem; font-weight: 700; color: var(--blue); background: var(--blue-soft);
+                         padding: 1px 7px; border-radius: 10px; flex-shrink: 0; }
+    .proj-del { background: none; border: none; color: var(--muted2); cursor: pointer; font-size: 1rem; padding: 2px 6px; flex-shrink: 0; }
     .proj-del:hover { color: #dc2626; }
     .no-proj-msg { text-align: center; color: var(--muted2); font-size: 0.85rem; padding: 10px 0; }
-    .proj-add { border-top: 1px solid var(--line); padding-top: 14px; }
-    .proj-field input, .proj-field select {
+    /* Combinador de filho direto (>) de proposito -- .proj-source-choice
+       tambem tem a classe proj-field, e os <input type=radio> dela ficam
+       DENTRO de <label class="proj-radio">, nao direto em .proj-field; um
+       seletor descendente (.proj-field input) pegaria esses radios tambem
+       e esticaria eles pra width:100% com borda -- foi exatamente isso que
+       deixou os radios do modal gigantes/deformados. */
+    .proj-field > input, .proj-field > select {
       width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
       font-size: 0.9rem; font-family: inherit; margin-bottom: 8px;
     }
     .proj-source-choice { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
     .proj-radio { display: flex; align-items: center; gap: 7px; font-size: 0.87rem; color: var(--ink); cursor: pointer; }
+    .proj-radio input[type="radio"] { width: auto; margin: 0; flex-shrink: 0; }
     .proj-hint { font-size: 0.76rem; color: var(--muted2); line-height: 1.4; margin-top: -2px; }
     .proj-error { font-size: 0.8rem; color: #dc2626; margin-top: 6px; display: none; }
-    .modal-close { width: 100%; margin-top: 12px; }
 
-    .model-row { display: flex; align-items: center; gap: 8px; padding: 9px 10px;
-                 border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; }
-    .model-badge { font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 5px;
-                   flex-shrink: 0; letter-spacing: .04em; }
-    .model-badge-seg { background: #e0f2fe; color: #0369a1; }
-    .model-badge-det { background: #fef3c7; color: #92400e; }
-    .model-badge-cls { background: #dcfce7; color: #166534; }
-    .model-path { flex: 1; font-size: 0.78rem; color: var(--muted2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .model-path.has-model { color: var(--ink); }
-    .model-row input[type=file] { max-width: 130px; font-size: 0.72rem; }
+    /* Select2 no #proj-source-select (permite digitar o nome do projeto pra
+       filtrar as opcoes) -- reaproveita as mesmas variaveis de cor do app,
+       entao acompanha o tema claro/escuro sem precisar duplicar regra. */
+    #proj-source-wrap .select2-container { width: 100% !important; margin-bottom: 8px; }
+    .select2-container--default .select2-selection--single {
+      height: auto; min-height: 38px; padding: 7px 10px; display: flex; align-items: center;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__rendered {
+      color: var(--ink); padding: 0; line-height: normal; font-size: 0.9rem; font-family: inherit;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__arrow {
+      height: 36px; top: 0; right: 6px;
+    }
+    .select2-container--open .select2-dropdown {
+      border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden;
+      box-shadow: 0 8px 24px rgba(16,24,40,0.14);
+    }
+    .select2-search--dropdown { padding: 8px; background: var(--panel); }
+    .select2-search--dropdown .select2-search__field {
+      border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); color: var(--ink);
+      padding: 6px 8px; font-family: inherit; font-size: 0.85rem; outline: none;
+    }
+    .select2-results__option { color: var(--ink); font-size: 0.88rem; }
+    .select2-container--default .select2-results__option--highlighted[aria-selected] {
+      background: var(--blue); color: #fff;
+    }
+    .select2-container--default .select2-results__option[aria-selected="true"] {
+      background: var(--blue-soft); color: var(--ink);
+    }
+    /* fica acima do modal (z-index:1000) -- select2 usa esse ID de dropdown por padrao */
+    .select2-container { z-index: 2000; }
 
     @media (max-width: 900px) {
       .main { padding: 1.6rem 1.2rem 1.6rem 3.6rem; }
@@ -204,8 +342,26 @@
     </div>
     {% endif %}
 
-    <h1 class="welcome-title">SpectralCrops</h1>
-    <p class="welcome-sub">Imageamento multiespectral de 8 bandas (365–850nm) para análise de sementes: calibre a câmera, capture as amostras e meça a reflectância por região de interesse.</p>
+    {% comment %}
+    Hero (logo + "equalizador" espectral) -- DESATIVADO a pedido do usuário
+    (27/09/2026). Mantido aqui comentado (CSS correspondente também
+    comentado lá em cima) pra reativar rápido: só tirar a tag de comentário
+    do Django que envolve esse bloco e descomentar o bloco CSS "Hero" no
+    <style>.
+
+    <div class="hero-row">
+      <div class="hero">
+        <div class="home-logo"><img src="{% static 'img/SpectralCrops-removed_background.png' %}" alt="SpectralCrops"></div>
+        <div class="hero-bar"></div>
+        <p class="welcome-sub">Imageamento multiespectral de 8 bandas (365–850nm) para análise de sementes: calibre a câmera, capture as amostras e meça a reflectância por região de interesse.</p>
+      </div>
+      <div class="spectral-anim" aria-hidden="true">
+        {% for b in hero_bands %}
+        <span class="bar" style="--bar-color: {{ b.color }};" title="{{ b.nm }}nm"></span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endcomment %}
 
     <!-- ── Projeto ativo ── -->
     <div class="card project-card">
@@ -217,7 +373,6 @@
         </div>
       </div>
       <div class="actions">
-        {% if active_project %}<button class="btn" onclick="openModelModal()">🤖 Modelos</button>{% endif %}
         <button class="btn btn-primary" onclick="openProjModal()">📁 Projetos</button>
       </div>
     </div>
@@ -239,17 +394,22 @@
     <div class="quick-actions">
       <a class="qa-btn {% if missing_calibrations %}qa-warn{% endif %}"
          href="{% if missing_calibrations %}{% url 'parameterization' %}{% else %}{% url 'data_acquisition' %}{% endif %}">
-        <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        <span class="qa-icon"><svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></span>
         <span class="qa-title">Adquirir Dados</span>
         <span class="qa-sub">{% if missing_calibrations %}Complete a calibração primeiro{% else %}Capturar as 8 bandas de uma amostra{% endif %}</span>
       </a>
       <a class="qa-btn" href="{% url 'annotations_list' %}">
-        <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l3-4 3 3 4-6"/></svg>
+        <span class="qa-icon"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l3-4 3 3 4-6"/></svg></span>
         <span class="qa-title">Annotations</span>
         <span class="qa-sub">Anotar ROIs e ver o que já foi medido</span>
       </a>
+      <a class="qa-btn" href="{% url 'machine_learning' %}">
+        <span class="qa-icon"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9zM9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg></span>
+        <span class="qa-title">Machine Learning</span>
+        <span class="qa-sub">Modelos de IA usados nas anotações</span>
+      </a>
       <a class="qa-btn" href="{% url 'parameterization' %}">
-        <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="2" fill="currentColor" stroke="none"/></svg>
+        <span class="qa-icon"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="2" fill="currentColor" stroke="none"/></svg></span>
         <span class="qa-title">Parametrização</span>
         <span class="qa-sub">Filtros, LEDs, câmera e calibração</span>
       </a>
@@ -285,14 +445,29 @@
 
       <!-- Assinatura espectral -->
       <div class="card wide">
-        <h3>Assinatura espectral — referência 100%</h3>
-        {% if refl_chart %}
-        <div id="home-spectrum-chart"></div>
-        <p class="spectrum-caption">Média bruta (0–255) de cada banda dentro da região branca de referência, usada como base do cálculo de reflectância.</p>
-        {{ refl_chart|json_script:"refl-chart-data" }}
-        {% else %}
-        <p class="empty-hint">Ainda sem calibração de reflectância 100% — faça em <a href="{% url 'parameterization' %}">Parametrização</a> pra ver a assinatura espectral aqui.</p>
-        {% endif %}
+        <h3>Assinatura espectral</h3>
+        <div class="spectrum-grid">
+          <div>
+            <h4>Referência 100% (branco)</h4>
+            {% if refl_chart %}
+            <div id="home-spectrum-chart"></div>
+            <p class="spectrum-caption">Média bruta (0–255) de cada banda dentro da região branca de referência.</p>
+            {{ refl_chart|json_script:"refl-chart-data" }}
+            {% else %}
+            <p class="empty-hint">Ainda sem calibração de reflectância 100% — faça em <a href="{% url 'parameterization' %}">Parametrização</a> pra ver a assinatura espectral aqui.</p>
+            {% endif %}
+          </div>
+          <div>
+            <h4>Referência 0% (escuro)</h4>
+            {% if refl0_chart %}
+            <div id="home-spectrum-chart-0"></div>
+            <p class="spectrum-caption">Média bruta (0–255) de cada banda com os LEDs apagados — ruído/corrente de escuro do sensor.</p>
+            {{ refl0_chart|json_script:"refl0-chart-data" }}
+            {% else %}
+            <p class="empty-hint">Ainda sem calibração de reflectância 0% — faça em <a href="{% url 'parameterization' %}">Parametrização</a> pra ver a assinatura espectral aqui.</p>
+            {% endif %}
+          </div>
+        </div>
       </div>
 
     </div>
@@ -306,79 +481,93 @@
     {% endif %}
   </main>
 
-  <!-- ── Modal de projetos ── -->
+  <!-- ── Modal de projetos -- passo a passo: escolhe a acao primeiro
+       (Selecionar/Criar), so depois chega na tela daquilo -- ver
+       showProjStep() no JS. ── -->
   <div id="project-modal" class="modal-overlay" onclick="closeProjModal(event)">
     <div class="modal-box" onclick="event.stopPropagation()">
-      <h3>📁 Projetos</h3>
-      <div class="proj-list" id="proj-list">
-        {% for p in projects %}
-        <div class="proj-item {% if active_project and p.id == active_project.id %}active{% endif %}" onclick="selectProject({{ p.id }})">
-          <div class="proj-dot"></div>
-          <div class="proj-name">{{ p.name }}{% if p.is_default %} <span class="proj-default-badge">padrão</span>{% endif %}</div>
-          <button class="proj-del" onclick="deleteProject(event, {{ p.id }})" title="Remover">✕</button>
-        </div>
-        {% empty %}
-        <div class="no-proj-msg">Nenhum projeto criado ainda.</div>
-        {% endfor %}
+      <div class="modal-head">
+        <button class="modal-back" id="modal-back-btn" onclick="showProjStep('choose')" title="Voltar" hidden>←</button>
+        <h3 id="modal-title">📁 Projetos</h3>
+        <button class="modal-x" onclick="closeProjModal()" title="Fechar">✕</button>
       </div>
-      <div class="proj-add">
-        <div class="proj-field">
-          <input type="text" id="proj-name" placeholder="Nome do projeto (ex: Feijão Safra 2026)">
-        </div>
-        <div class="proj-field proj-source-choice">
-          <label class="proj-radio"><input type="radio" name="proj-source" value="blank" checked onchange="updateSourceSelect()"> Projeto vazio</label>
-          <label class="proj-radio"><input type="radio" name="proj-source" value="clone" onchange="updateSourceSelect()"> Baseado em outro projeto</label>
-        </div>
-        <div class="proj-field" id="proj-source-wrap" style="display:none">
-          <select id="proj-source-select">
-            {% for p in projects %}
-            <option value="{{ p.id }}" {% if p.is_default %}selected{% endif %}>{{ p.name }}{% if p.is_default %} (padrão){% endif %}</option>
-            {% endfor %}
-          </select>
-          <p class="proj-hint">Copia os filtros e a intensidade dos LEDs desse projeto. As calibrações (espacial/reflectância) não são copiadas — cada projeto precisa da sua própria.</p>
-        </div>
-        <button class="btn btn-primary" style="width:100%" onclick="addProject()">+ Adicionar projeto</button>
-        <div class="proj-error" id="proj-error"></div>
+
+      <!-- Passo 1: o que voce quer fazer -->
+      <div class="proj-step" id="step-choose">
+        <button class="proj-choice-btn" onclick="showProjStep('select')">
+          <span class="choice-icon">📁</span>
+          <span class="choice-text">
+            <span class="choice-title">Selecionar projeto</span>
+            <span class="choice-sub">Trocar pra um projeto já existente</span>
+          </span>
+        </button>
+        <button class="proj-choice-btn" onclick="showProjStep('create')">
+          <span class="choice-icon">➕</span>
+          <span class="choice-text">
+            <span class="choice-title">Criar novo projeto</span>
+            <span class="choice-sub">Começar do zero ou baseado em outro projeto</span>
+          </span>
+        </button>
       </div>
-      <button class="btn modal-close" onclick="closeProjModal()">Fechar</button>
+
+      <!-- Passo 2: selecionar um projeto existente -->
+      <div class="proj-step" id="step-select" hidden>
+        {% if projects %}
+        <input type="search" id="proj-search" class="proj-search-input"
+               placeholder="Buscar projeto por nome..." oninput="filterProjList()">
+        {% endif %}
+        <div class="proj-list" id="proj-list">
+          {% for p in projects %}
+          <div class="proj-item {% if active_project and p.id == active_project.id %}active{% endif %}"
+               data-name="{{ p.name|lower }}" onclick="selectProject({{ p.id }})">
+            <div class="proj-dot"></div>
+            <div class="proj-info">
+              <div class="proj-name-row">
+                <span class="proj-name">{{ p.name }}</span>
+                {% if p.is_default %}<span class="proj-default-badge">padrão</span>{% endif %}
+                {% if request.user.is_superuser %}<span class="proj-owner-badge">{{ p.owner.username }}</span>{% endif %}
+              </div>
+              <div class="proj-date">Criado em {{ p.created|date:"d/m/Y" }}</div>
+            </div>
+            <button class="proj-del" onclick="deleteProject(event, {{ p.id }})" title="Remover">✕</button>
+          </div>
+          {% empty %}
+          <div class="no-proj-msg">Nenhum projeto criado ainda.</div>
+          {% endfor %}
+          <div class="no-proj-msg" id="proj-search-empty" hidden>Nenhum projeto encontrado.</div>
+        </div>
+      </div>
+
+      <!-- Passo 3: criar um projeto novo -->
+      <div class="proj-step" id="step-create" hidden>
+        <div class="proj-add">
+          <div class="proj-field">
+            <input type="text" id="proj-name" placeholder="Nome do projeto (ex: Feijão Safra 2026)">
+          </div>
+          <div class="proj-field proj-source-choice">
+            <label class="proj-radio"><input type="radio" name="proj-source" value="blank" checked onchange="updateSourceSelect()"> Projeto vazio</label>
+            <label class="proj-radio"><input type="radio" name="proj-source" value="clone" onchange="updateSourceSelect()"> Baseado em outro projeto</label>
+          </div>
+          <div class="proj-field" id="proj-source-wrap" style="display:none">
+            <select id="proj-source-select">
+              {% for p in projects %}
+              <option value="{{ p.id }}" {% if p.is_default %}selected{% endif %}>{{ p.name }}{% if p.is_default %} (padrão){% endif %}{% if request.user.is_superuser %} — {{ p.owner.username }}{% endif %}</option>
+              {% endfor %}
+            </select>
+            <p class="proj-hint">Copia os filtros e a intensidade dos LEDs desse projeto. As calibrações (espacial/reflectância) não são copiadas — cada projeto precisa da sua própria.</p>
+          </div>
+          <button class="btn btn-primary" style="width:100%" onclick="addProject()">+ Adicionar projeto</button>
+          <div class="proj-error" id="proj-error"></div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- ── Modal de modelos ── -->
-  <div id="model-modal" class="modal-overlay" onclick="closeModelModal(event)">
-    <div class="modal-box" onclick="event.stopPropagation()">
-      <h3>🤖 Modelos do projeto</h3>
-      <p style="font-size:0.82rem;color:var(--muted2);margin-bottom:14px">{{ active_project.name|default:"Nenhum projeto ativo" }}</p>
-
-      <div class="model-row">
-        <span class="model-badge model-badge-seg">SEG</span>
-        <span class="model-path" id="mpath-seg">carregando…</span>
-        <input type="file" id="mfile-seg" accept=".pt">
-        <button class="btn" onclick="uploadModel('seg')">Enviar</button>
-      </div>
-      <div class="model-row">
-        <span class="model-badge model-badge-det">DET</span>
-        <span class="model-path" id="mpath-det">carregando…</span>
-        <input type="file" id="mfile-det" accept=".pt">
-        <button class="btn" onclick="uploadModel('det')">Enviar</button>
-      </div>
-      <div class="model-row">
-        <span class="model-badge model-badge-cls">CLS</span>
-        <span class="model-path" id="mpath-cls">carregando…</span>
-        <input type="file" id="mfile-cls" accept=".pt">
-        <button class="btn" onclick="uploadModel('cls')">Enviar</button>
-      </div>
-      <button class="btn modal-close" onclick="closeModelModal()">Fechar</button>
-    </div>
-  </div>
-
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
 <script>
 const CSRF = '{{ csrf_token }}';
-const ACTIVE_PROJECT_ID = {{ active_project.id|default:"null" }};
 </script>
-{{ active_project.model_seg.name|default:""|json_script:"model-seg-name" }}
-{{ active_project.model_det.name|default:""|json_script:"model-det-name" }}
-{{ active_project.model_cls.name|default:""|json_script:"model-cls-name" }}
 
 <script>
 function apiJSON(url, obj) {
@@ -386,10 +575,32 @@ function apiJSON(url, obj) {
     body: JSON.stringify(obj) }).then(r => r.json());
 }
 function projectDeleteUrl(id)   { return '/projects/' + id + '/delete/'; }
-function projectModelUrl(id)    { return '/projects/' + id + '/model/'; }
 
 /* ── Projetos ── */
-function openProjModal()  { document.getElementById('project-modal').classList.add('open'); }
+const PROJ_STEP_TITLES = { choose: '📁 Projetos', select: '📁 Selecionar projeto', create: '➕ Criar novo projeto' };
+function showProjStep(step) {
+  document.querySelectorAll('.proj-step').forEach(el => { el.hidden = (el.id !== 'step-' + step); });
+  document.getElementById('modal-back-btn').hidden = (step === 'choose');
+  document.getElementById('modal-title').textContent = PROJ_STEP_TITLES[step];
+  if (step === 'select') {
+    const searchEl = document.getElementById('proj-search');
+    if (searchEl) { searchEl.value = ''; filterProjList(); }
+  }
+}
+function filterProjList() {
+  const q = document.getElementById('proj-search').value.trim().toLowerCase();
+  let anyVisible = false;
+  document.querySelectorAll('#proj-list .proj-item').forEach(item => {
+    const show = !q || item.dataset.name.includes(q);
+    item.style.display = show ? '' : 'none';
+    if (show) anyVisible = true;
+  });
+  document.getElementById('proj-search-empty').hidden = anyVisible || !q;
+}
+function openProjModal() {
+  showProjStep('choose');  // sempre comeca pela escolha, mesmo se a ultima vez tinha ficado em outro passo
+  document.getElementById('project-modal').classList.add('open');
+}
 function closeProjModal(event) {
   if (event && event.target !== document.getElementById('project-modal')) return;
   document.getElementById('project-modal').classList.remove('open');
@@ -399,13 +610,34 @@ function selectProject(id) {
 }
 function deleteProject(event, id) {
   event.stopPropagation();
-  if (!confirm('Remover este projeto? As aquisições já feitas não serão apagadas, só deixam de pertencer a ele.')) return;
+  // pega o nome direto do DOM (nao via template) pra nao ter que escapar
+  // aspas/apostrofo do nome do projeto dentro de uma string JS no onclick.
+  const name = event.target.closest('.proj-item').querySelector('.proj-name').textContent.trim();
+  const msg = `Apagar "${name}" permanentemente?\n\n` +
+    'Isso apaga TUDO desse projeto, sem volta:\n' +
+    '• Todas as aquisições (as fotos das 8 bandas de cada amostra)\n' +
+    '• Anotações e medições de ROI (os espectros já calculados)\n' +
+    '• As 3 calibrações (espacial e reflectância 100%/0%)\n\n' +
+    'Não tem como desfazer essa ação.';
+  if (!confirm(msg)) return;
   fetch(projectDeleteUrl(id), { method: 'POST', headers: { 'X-CSRFToken': CSRF } })
     .then(r => r.json()).then(d => { if (d.ok) window.location.reload(); });
 }
+let projSourceSelect2Ready = false;
 function updateSourceSelect() {
   const clone = document.querySelector('input[name="proj-source"]:checked').value === 'clone';
   document.getElementById('proj-source-wrap').style.display = clone ? 'block' : 'none';
+  // inicializa o Select2 so na 1a vez que o campo aparece -- inicializar com
+  // o wrap ainda escondido (display:none) faz o Select2 medir largura 0 e
+  // renderizar quebrado; aqui o wrap ja esta visivel na mesma chamada.
+  if (clone && !projSourceSelect2Ready && window.jQuery) {
+    $('#proj-source-select').select2({
+      width: '100%',
+      dropdownParent: $('#step-create'),
+      language: { noResults: () => 'Nenhum projeto encontrado', searching: () => 'Buscando…' },
+    });
+    projSourceSelect2Ready = true;
+  }
 }
 
 function addProject() {
@@ -421,52 +653,18 @@ function addProject() {
   });
 }
 
-/* ── Modelos ── */
-function openModelModal() {
-  if (!ACTIVE_PROJECT_ID) return;
-  const names = {
-    seg: JSON.parse(document.getElementById('model-seg-name').textContent),
-    det: JSON.parse(document.getElementById('model-det-name').textContent),
-    cls: JSON.parse(document.getElementById('model-cls-name').textContent),
-  };
-  ['seg','det','cls'].forEach(t => {
-    const el = document.getElementById('mpath-' + t);
-    el.textContent = names[t] || 'Nenhum modelo enviado';
-    el.classList.toggle('has-model', !!names[t]);
-  });
-  document.getElementById('model-modal').classList.add('open');
-}
-function closeModelModal(event) {
-  if (event && event.target !== document.getElementById('model-modal')) return;
-  document.getElementById('model-modal').classList.remove('open');
-}
-function uploadModel(type) {
-  if (!ACTIVE_PROJECT_ID) return;
-  const input = document.getElementById('mfile-' + type);
-  const file = input.files[0];
-  if (!file) { alert('Escolha um arquivo .pt primeiro.'); return; }
-  const fd = new FormData();
-  fd.append('type', type);
-  fd.append('file', file);
-  fetch(projectModelUrl(ACTIVE_PROJECT_ID), { method: 'POST', headers: { 'X-CSRFToken': CSRF }, body: fd })
-    .then(r => r.json()).then(d => {
-      if (!d.ok) { alert(d.error || 'Falha ao enviar modelo'); return; }
-      document.getElementById('mpath-' + type).textContent = d.name;
-      document.getElementById('mpath-' + type).classList.add('has-model');
-    });
-}
-
 /* ── Assinatura espectral (barras, mesma logica do refl-chart de Parametrização) ── */
-{% if refl_chart %}
-(function() {
-  const data = JSON.parse(document.getElementById('refl-chart-data').textContent);
-  const el = document.getElementById('home-spectrum-chart');
+function renderSpectrumBarChart(dataElId, targetElId, ariaLabel) {
+  const dataEl = document.getElementById(dataElId);
+  const el = document.getElementById(targetElId);
+  if (!dataEl || !el) return;
+  const data = JSON.parse(dataEl.textContent);
   const W = 900, H = 190, padL = 40, padR = 10, padT = 10, padB = 26;
   const plotW = W - padL - padR, plotH = H - padT - padB;
   const FULL_SCALE = 255;
   const slot = plotW / data.length;
   const barW = Math.min(56, slot * 0.55);
-  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Média por banda da referência branca (0-255)">`;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="${ariaLabel}">`;
   [0, 64, 128, 192, 255].forEach(t => {
     const y = padT + plotH - (t / FULL_SCALE) * plotH;
     svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--line)" stroke-width="1"/>`;
@@ -481,7 +679,12 @@ function uploadModel(type) {
   });
   svg += `</svg>`;
   el.innerHTML = svg;
-})();
+}
+{% if refl_chart %}
+renderSpectrumBarChart('refl-chart-data', 'home-spectrum-chart', 'Média por banda da referência branca (0-255)');
+{% endif %}
+{% if refl0_chart %}
+renderSpectrumBarChart('refl0-chart-data', 'home-spectrum-chart-0', 'Média por banda da referência escura (0-255)');
 {% endif %}
 </script>
 </body>

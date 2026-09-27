@@ -518,7 +518,7 @@
           <h2>Calibração 100%{% if refl_stale %}<span class="stale-badge" title="Câmera ou iluminação mudaram depois dessa calibração">⚠ desatualizada</span>{% endif %}</h2>
           <div class="refl-imgwrap" id="refl-wrap">
             <img id="refl-img" alt="Referência 100%"
-                 {% if refl and refl.image %}src="{{ refl.image.url }}" style="display:block"{% else %}style="display:none"{% endif %}>
+                 {% if refl and refl.image %}src="{{ refl_image_url }}" style="display:block"{% else %}style="display:none"{% endif %}>
             <div id="refl-box" class="refl-box"></div>
             <span class="placeholder" id="refl-ph"
                   style="{% if refl and refl.image %}display:none{% endif %}">ligue o stream, depois use o botão abaixo</span>
@@ -539,7 +539,7 @@
           <h2>Calibração 0%{% if refl0_stale %}<span class="stale-badge" title="Câmera ou iluminação mudaram depois dessa calibração">⚠ desatualizada</span>{% endif %}</h2>
           <div class="cal-imgwrap">
             <img id="refl0-img" alt="Referência 0%"
-                 {% if refl0 and refl0.image %}src="{{ refl0.image.url }}" style="display:block"{% else %}style="display:none"{% endif %}>
+                 {% if refl0 and refl0.image %}src="{{ refl0_image_url }}" style="display:block"{% else %}style="display:none"{% endif %}>
             <span class="placeholder" id="refl0-ph"
                   style="{% if refl0 and refl0.image %}display:none{% endif %}">ligue o stream, depois use o botão abaixo (todos os LEDs apagados)</span>
           </div>

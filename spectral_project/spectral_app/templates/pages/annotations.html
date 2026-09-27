@@ -110,8 +110,9 @@
     .badge { display: inline-block; padding: 2px 7px; border-radius: 12px; font-size: .68rem; font-weight: 600; }
     .badge-done    { background: #e3f6e9; color: #1c7a3d; }
     .badge-pending { background: #fef3e0; color: #b45309; }
-    .badge-poly    { background: var(--blue-soft); color: var(--blue); }
     .badge-box     { background: #fde9d8; color: #c2540a; }
+    .badge-ellipse { background: #dcf3fa; color: #0e7c96; }
+    .badge-poly    { background: var(--blue-soft); color: var(--blue); }
     .badge-point   { background: #ede4fb; color: #7440c4; }
 
     .card-label-row { padding: 6px 12px 8px; border-top: 1px solid var(--line); }
@@ -173,11 +174,11 @@
     <h3>Exportar anotações</h3>
     <div class="modal-summary" id="modal-summary"></div>
     <div class="modal-options">
-      <button class="modal-opt" id="btn-seg" onclick="doExport('seg')">
+      <button class="modal-opt" id="btn-seg" onclick="doExport('seg')" title="Baixa um .zip com imagens + labels + data.yaml, pronto pra treinar o YOLO fora do Pi (ver tools/yolo_trainer_gui.py)">
         <span class="opt-icon">⬡</span><span class="opt-label">Segmentação</span>
         <span class="opt-sub" id="modal-poly-count"></span>
       </button>
-      <button class="modal-opt" id="btn-det" onclick="doExport('det')">
+      <button class="modal-opt" id="btn-det" onclick="doExport('det')" title="Baixa um .zip com imagens + labels + data.yaml, pronto pra treinar o YOLO fora do Pi (ver tools/yolo_trainer_gui.py)">
         <span class="opt-icon">▢</span><span class="opt-label">Detecção</span>
         <span class="opt-sub" id="modal-box-count"></span>
       </button>
@@ -215,8 +216,9 @@
     <option value="all">Todas</option>
     <option value="done">Anotadas</option>
     <option value="pending">Pendentes</option>
-    <option value="poly">Com Polígonos</option>
     <option value="box">Com Boxes</option>
+    <option value="ellipse">Com Elipses</option>
+    <option value="poly">Com Polígonos</option>
     <option value="point">Com Pontos</option>
   </select>
   <select id="filter-label" onchange="filterCards()">
@@ -245,8 +247,9 @@
      data-name="{{ img.name|lower }}"
      data-id="{{ img.id }}"
      data-status="{% if img.annotated %}done{% else %}pending{% endif %}"
-     data-polygons="{{ img.n_polygons }}"
      data-boxes="{{ img.n_boxes }}"
+     data-ellipses="{{ img.n_ellipses }}"
+     data-polygons="{{ img.n_polygons }}"
      data-points="{{ img.n_points }}"
      data-rois="{{ img.n_rois }}"
      data-label="{{ img.image_label|lower }}">
@@ -261,8 +264,9 @@
       <div class="badge-row">
         {% if img.annotated %}
           <span class="badge badge-done">✓</span>
-          {% if img.n_polygons > 0 %}<span class="badge badge-poly">⬡ {{ img.n_polygons }} polí</span>{% endif %}
           {% if img.n_boxes > 0 %}<span class="badge badge-box">▢ {{ img.n_boxes }} box</span>{% endif %}
+          {% if img.n_ellipses > 0 %}<span class="badge badge-ellipse">⬭ {{ img.n_ellipses }} elipse</span>{% endif %}
+          {% if img.n_polygons > 0 %}<span class="badge badge-poly">⬡ {{ img.n_polygons }} polí</span>{% endif %}
           {% if img.n_points > 0 %}<span class="badge badge-point">· {{ img.n_points }} pt</span>{% endif %}
         {% else %}
           <span class="badge badge-pending">Pendente</span>
@@ -283,8 +287,7 @@
 <script>
 const CSRF = '{{ csrf_token }}';
 const URLS = {
-  exportSeg:    "{% url 'export_yolo_seg' %}",
-  exportDet:    "{% url 'export_yolo_boxes' %}",
+  exportDataset: "{% url 'ml_dataset_export' %}",
   exportCls:    "{% url 'export_classification' %}",
   exportRois:   "{% url 'export_roi_measurements' %}",
   downloadZip:  "{% url 'data_acquisition_download_zip' %}",
@@ -357,16 +360,18 @@ function filterCards() {
   sessionStorage.setItem('ann-filter-label', label);
   let visible = 0;
   document.querySelectorAll('.card').forEach(c => {
-    const nPoly = parseInt(c.dataset.polygons) || 0;
     const nBox = parseInt(c.dataset.boxes) || 0;
+    const nEllipse = parseInt(c.dataset.ellipses) || 0;
+    const nPoly = parseInt(c.dataset.polygons) || 0;
     const nPoint = parseInt(c.dataset.points) || 0;
     const matchText = c.dataset.name.includes(q);
     const matchStatus =
       status === 'all' ? true :
       status === 'done' ? c.dataset.status === 'done' :
       status === 'pending' ? c.dataset.status === 'pending' :
-      status === 'poly' ? nPoly > 0 :
       status === 'box' ? nBox > 0 :
+      status === 'ellipse' ? nEllipse > 0 :
+      status === 'poly' ? nPoly > 0 :
       status === 'point' ? nPoint > 0 : true;
     const matchLabel = !label || c.dataset.label === label;
     const show = matchText && matchStatus && matchLabel;
@@ -410,17 +415,19 @@ function updateSelCount() {
 function openModal() {
   const selected = [...document.querySelectorAll('.card.selected')];
   if (selected.length === 0) { alert('Selecione pelo menos uma amostra antes de exportar.'); return; }
-  const nPoly = selected.filter(c => parseInt(c.dataset.polygons) > 0).length;
+  // "seg" combina elipse + poligono -- os dois sao contorno fechado valido
+  // pra treinar segmentacao (ver views.ml_dataset_export).
+  const nSeg = selected.filter(c => (parseInt(c.dataset.ellipses) || 0) + (parseInt(c.dataset.polygons) || 0) > 0).length;
   const nBox = selected.filter(c => parseInt(c.dataset.boxes) > 0).length;
   const nLabel = selected.filter(c => c.dataset.label && c.dataset.label.trim()).length;
   const nRois = selected.reduce((sum, c) => sum + (parseInt(c.dataset.rois) || 0), 0);
   const n = selected.length;
   document.getElementById('modal-summary').innerHTML = `<strong>${n}</strong> amostra${n > 1 ? 's' : ''} selecionada${n > 1 ? 's' : ''}`;
-  document.getElementById('modal-poly-count').textContent = `${nPoly} com polígonos`;
-  document.getElementById('modal-box-count').textContent = `${nBox} com boxes`;
+  document.getElementById('modal-poly-count').textContent = `${nSeg} com elipses/polígonos → .zip`;
+  document.getElementById('modal-box-count').textContent = `${nBox} com boxes → .zip`;
   document.getElementById('modal-cls-count').textContent = `${nLabel} com categoria`;
   document.getElementById('modal-rois-count').textContent = `${nRois} ROI(s) medidos`;
-  document.getElementById('btn-seg').disabled = nPoly === 0;
+  document.getElementById('btn-seg').disabled = nSeg === 0;
   document.getElementById('btn-det').disabled = nBox === 0;
   document.getElementById('btn-cls').disabled = nLabel === 0;
   document.getElementById('btn-rois').disabled = nRois === 0;
@@ -430,9 +437,10 @@ function closeModal(event) {
   if (event && event.target !== document.getElementById('export-modal')) return;
   document.getElementById('export-modal').classList.remove('open');
 }
-function doExport(type) {
+async function doExport(type) {
   const selected = [...document.querySelectorAll('.card.selected')];
   const ids = selected.map(c => parseInt(c.dataset.id));
+
   if (type === 'rois') {
     apiJSON(URLS.exportRois, { ids }).then(data => {
       const blob = new Blob([data.csv], { type: 'text/csv;charset=utf-8' });
@@ -442,14 +450,43 @@ function doExport(type) {
     });
     return;
   }
-  const endpoint = type === 'seg' ? URLS.exportSeg : type === 'det' ? URLS.exportDet : URLS.exportCls;
-  const filename = type === 'seg' ? 'yolo_seg_annotations.json' : type === 'det' ? 'yolo_annotations.json' : 'classification_annotations.json';
-  apiJSON(endpoint, { ids }).then(data => {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  if (type === 'cls') {
+    apiJSON(URLS.exportCls, { ids }).then(data => {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'classification_annotations.json'; a.click();
+      document.getElementById('export-modal').classList.remove('open');
+    });
+    return;
+  }
+
+  // seg/det: baixa o .zip completo (imagens + labels + data.yaml), pronto
+  // pra treinar o YOLO -- ver views.ml_dataset_export e tools/yolo_trainer_gui.py.
+  const btn = document.getElementById(type === 'seg' ? 'btn-seg' : 'btn-det');
+  const origLabel = btn.querySelector('.opt-label').textContent;
+  btn.disabled = true; btn.querySelector('.opt-label').textContent = 'Gerando .zip…';
+  try {
+    const r = await fetch(URLS.exportDataset, {
+      method: 'POST', headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task: type, ids, val_split: 0.2 }),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      alert(d.error || 'Falha ao gerar o dataset.');
+      return;
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+    a.href = url; a.download = `dataset_${type}_${Date.now()}.zip`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
     document.getElementById('export-modal').classList.remove('open');
-  });
+  } catch (e) {
+    alert('Erro ao gerar o dataset.');
+  } finally {
+    btn.disabled = false; btn.querySelector('.opt-label').textContent = origLabel;
+  }
 }
 
 /* ── Label inline edit ── */

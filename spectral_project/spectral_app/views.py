@@ -4,7 +4,7 @@ from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import csrf_exempt
-from django.http import StreamingHttpResponse, JsonResponse, FileResponse
+from django.http import StreamingHttpResponse, JsonResponse, FileResponse, HttpResponse, Http404
 from django.core.files.base import ContentFile
 from django.conf import settings
 from django.db.models import Max
@@ -37,11 +37,30 @@ import numpy as np
 # Analysis só ficam acessíveis com um projeto selecionado na Home; as
 # calibracoes e aquisicoes feitas a partir dai ficam vinculadas a ele.
 # ─────────────────────────────────────────────────────────────
+def _visible_projects(request):
+    """Projetos que o usuario logado pode ver/selecionar: so os proprios --
+    exceto superusuario (Admin), que enxerga os de todo mundo, mesmo
+    privilegio de quem usa o Django admin. Base de todo o isolamento por
+    usuario: qualquer coisa que busque Project (ou algo ligado a um) deve
+    passar por aqui em vez de Project.objects.all()/filter direto."""
+    if request.user.is_superuser:
+        return Project.objects.select_related('owner').all()
+    return Project.objects.select_related('owner').filter(owner=request.user)
+
+
 def _get_active_project(request):
     pid = request.session.get('active_project_id')
     if not pid:
         return None
-    return Project.objects.filter(id=pid).first()
+    return _visible_projects(request).filter(id=pid).first()
+
+
+def _owned_acquisition(request, acq_id):
+    """DataAcquisition pelo id, so se o projeto dela for visivel pro usuario
+    logado (ver _visible_projects) -- None se nao existe OU pertence a outro
+    usuario. Fecha o buraco de IDOR de endpoints que recebem acq_id vindo
+    direto do cliente (annotation_save, auto_classify, etc)."""
+    return DataAcquisition.objects.filter(id=acq_id, project__in=_visible_projects(request)).first()
 
 
 def require_project(view_func):
@@ -681,7 +700,7 @@ def _home_nolock(pi):
 # ─────────────────────────────────────────────────────────────
 @login_required
 def index(request):
-    projects = Project.objects.all()
+    projects = _visible_projects(request)
     active_project = _get_active_project(request)
 
     missing_calibrations = []
@@ -689,6 +708,7 @@ def index(request):
     stats = None
     recent_acquisitions = []
     refl_chart = []
+    refl0_chart = []
     if active_project:
         calib_status = _calibration_status(active_project)
         missing_calibrations = _missing_calibrations(active_project, status=calib_status)
@@ -698,7 +718,7 @@ def index(request):
         annotated = 0
         for acq in acqs_qs:
             ann = getattr(acq, 'annotation', None)
-            if ann and (ann.boxes or ann.polygons or ann.points):
+            if ann and (ann.boxes or ann.ellipses or ann.polygons or ann.points):
                 annotated += 1
         roi_count = ROIMeasurement.objects.filter(project=active_project).count()
         stats = {"total_acq": total_acq, "annotated": annotated, "roi_count": roi_count}
@@ -714,10 +734,19 @@ def index(request):
             refl_chart = [{"nm": nm, "color": LED_COLORS[nm], "value": refl.means[nm]}
                           for nm in LED_BANDS if refl.means.get(nm) is not None]
 
+        refl0 = ReflectanceZeroCalibration.objects.filter(project=active_project).first()
+        if refl0:
+            refl0_chart = [{"nm": nm, "color": LED_COLORS[nm], "value": refl0.means[nm]}
+                           for nm in LED_BANDS if refl0.means.get(nm) is not None]
+
+    # so decorativo (animacao "equalizador" no hero) -- nao depende de projeto ativo
+    hero_bands = [{"nm": nm, "color": LED_COLORS[nm]} for nm in LED_BANDS]
+
     return render(request, "pages/index.html", {
         "projects": projects, "active_project": active_project,
         "missing_calibrations": missing_calibrations, "calib_status": calib_status, "stats": stats,
-        "recent_acquisitions": recent_acquisitions, "refl_chart": refl_chart,
+        "recent_acquisitions": recent_acquisitions, "refl_chart": refl_chart, "refl0_chart": refl0_chart,
+        "hero_bands": hero_bands,
     })
 
 
@@ -981,10 +1010,15 @@ def parameterization(request):
     cam = _ensure_camera_settings(project)
     _apply_camera_settings(project)   # garante que o hardware reflita o que esta salvo
     refl_stale, refl0_stale = _reflectance_stale(project)
+    # imagens de referencia (banda unica) exibidas com o colormap nipy_spectral;
+    # a do QR (cal.image) fica de fora de proposito, ver _spectral_url
+    refl_image_url = _spectral_url(refl.image.url) if refl and refl.image else ""
+    refl0_image_url = _spectral_url(refl0.image.url) if refl0 and refl0.image else ""
     return render(request, "pages/parameterization.html",
                   {"filters": filters, "bands": bands, "cal": cal, "refl": refl, "refl0": refl0,
                    "cam": cam, "project": project, "led_stabilize_seconds": LED_STABILIZE_SECONDS,
                    "refl_stale": refl_stale, "refl0_stale": refl0_stale,
+                   "refl_image_url": refl_image_url, "refl0_image_url": refl0_image_url,
                    "locked": _project_locked(project)})
 
 
@@ -1323,8 +1357,11 @@ def param_reflectance_capture(request):
         cv2.imwrite(os.path.join(out_dir, f"{nm}nm.png"), frame)
     print(f"Captura de reflectancia salva em: {out_dir}")
 
-    ok_enc, buf = cv2.imencode('.png', base_frame)
-    if not ok_enc:
+    # colorido SO na exibicao -- o bbox e arrastado sobre essa imagem, mas a
+    # media de verdade (param_reflectance_compute) le de _reflectance_capture,
+    # os frames crus guardados em memoria logo abaixo, nunca essa versao
+    image_data = _encode_png_b64(base_frame, colorize=True)
+    if image_data is None:
         return JsonResponse({"ok": False, "error": "Falha ao codificar imagem."}, status=500)
 
     session = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -1333,9 +1370,8 @@ def param_reflectance_capture(request):
         _reflectance_capture['session'] = session
         _reflectance_capture['frames'] = frames
 
-    b64 = base64.b64encode(buf.tobytes()).decode('ascii')
     return JsonResponse({"ok": True, "session": session, "folder": folder,
-                         "image_data": f"data:image/png;base64,{b64}",
+                         "image_data": image_data,
                          "width": int(base_frame.shape[1]), "height": int(base_frame.shape[0])})
 
 
@@ -1453,13 +1489,13 @@ def param_reflectance_zero(request):
     base_frame = frames.get(REFL_BASE_BAND)
     image_data = ""
     if base_frame is not None:
-        ok_enc, buf = cv2.imencode('.png', base_frame)
+        ok_enc, buf = cv2.imencode('.png', base_frame)  # cru -- e o que vai pro disco (cal.image)
         if ok_enc:
             if cal.image:
                 cal.image.delete(save=False)
             cal.image.save(f"{_dated_name(project, 'reflectancia0')}.png", ContentFile(buf.tobytes()), save=False)
-            b64 = base64.b64encode(buf.tobytes()).decode('ascii')
-            image_data = f"data:image/png;base64,{b64}"
+        # colorido SO na resposta JSON (exibicao) -- encode separado do que foi salvo em disco
+        image_data = _encode_png_b64(base_frame, colorize=True) or ""
     cal.save()
 
     return JsonResponse({"ok": True, "means": means, "image_data": image_data,
@@ -1545,7 +1581,10 @@ def data_acquisition(request):
             # means/reflectance do frame inteiro)
             norm_url = (f"{settings.MEDIA_URL}acquisitions/{acq.folder}/normalized/{nm}nm.png"
                         if _acquisition_has_normalized(acq, nm) else "")
-            acq_images.append({"nm": nm, "raw_url": raw_url, "norm_url": norm_url})
+            # banda unica -> exibe com o colormap nipy_spectral (ver _spectral_url);
+            # o arquivo em disco continua cru, so a URL de exibicao muda
+            acq_images.append({"nm": nm, "raw_url": _spectral_url(raw_url),
+                               "norm_url": _spectral_url(norm_url)})
         rgb_path = os.path.join(settings.MEDIA_ROOT, "acquisitions", acq.folder, "rgb.png")
         if os.path.exists(rgb_path):
             rgb_url = f"{settings.MEDIA_URL}acquisitions/{acq.folder}/rgb.png"
@@ -1553,6 +1592,89 @@ def data_acquisition(request):
                   {"acq": acq, "bands": bands, "acq_images": acq_images, "project": project,
                    "led_stabilize_seconds": LED_STABILIZE_SECONDS, "rgb_url": rgb_url,
                    "is_first_acquisition": is_first_acquisition})
+
+
+# ── Colormap "nipy_spectral" (matplotlib) pra exibir bandas unicas ────────
+# SO PRA EXIBICAO -- nunca aplicado no arquivo salvo em disco (raw/
+# normalized), que precisa continuar em escala de cinza de verdade pra
+# roi_measurement_compute (le com cv2.imread(..., IMREAD_GRAYSCALE)) e
+# qualquer outra conta calcularem a intensidade certa. O composto RGB
+# (_rgb_composite) tambem nunca passa por aqui -- ja e uma imagem colorida
+# de verdade (3 bandas -> R/G/B), nao uma banda unica pra colorir.
+_SPECTRAL_LUT = None
+
+
+def _spectral_lut():
+    """LUT (256x1x3, BGR uint8) do colormap 'nipy_spectral' do matplotlib --
+    construida uma vez e cacheada em memoria, aplicada via cv2.LUT."""
+    global _SPECTRAL_LUT
+    if _SPECTRAL_LUT is None:
+        import matplotlib
+        cmap = matplotlib.colormaps['nipy_spectral']
+        rgb = (np.array([cmap(i / 255.0)[:3] for i in range(256)]) * 255).astype(np.uint8)
+        _SPECTRAL_LUT = rgb[:, ::-1].reshape(256, 1, 3)  # RGB -> BGR (convencao do opencv)
+    return _SPECTRAL_LUT
+
+
+def _apply_spectral_cmap(gray):
+    """Aplica o colormap 'nipy_spectral' numa imagem em escala de cinza (2D, ou
+    3D com os 3 canais iguais -- caso comum aqui, ja que a camera e
+    monocromatica mas os frames sao lidos/salvos como BGR). Devolve BGR
+    uint8 colorido, pronto pra cv2.imencode."""
+    if gray.ndim == 3:
+        gray = cv2.cvtColor(gray, cv2.COLOR_BGR2GRAY)
+    bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+    return cv2.LUT(bgr, _spectral_lut())
+
+
+def _encode_png_b64(frame, colorize=False):
+    """PNG -> data URI base64, pronta pra por num <img src>. colorize=True
+    aplica o colormap nipy_spectral ANTES de codificar -- so usar quando esse
+    frame especifico nao for tambem salvo em disco por essa mesma chamada
+    (ver comentario grande acima). None se o encode falhar."""
+    img = _apply_spectral_cmap(frame) if colorize else frame
+    ok, buf = cv2.imencode('.png', img)
+    if not ok:
+        return None
+    return f"data:image/png;base64,{base64.b64encode(buf.tobytes()).decode('ascii')}"
+
+
+SPECTRAL_VIEW_PREFIX = "/spectral-view/"
+
+
+def _spectral_url(media_url_path):
+    """Converte uma URL de midia normal (MEDIA_URL + caminho) na URL
+    equivalente servida com o colormap nipy_spectral aplicado (ver view
+    band_image_colored) -- string vazia se a entrada for vazia/None."""
+    if not media_url_path:
+        return ""
+    if media_url_path.startswith(settings.MEDIA_URL):
+        return SPECTRAL_VIEW_PREFIX + media_url_path[len(settings.MEDIA_URL):]
+    return media_url_path  # fallback -- nao deveria acontecer
+
+
+@login_required
+def band_image_colored(request, subpath):
+    """Serve qualquer PNG dentro de MEDIA_ROOT com o colormap nipy_spectral
+    aplicado -- SO pra exibicao, o arquivo em disco nunca e tocado (ver
+    _apply_spectral_cmap). Usado pelas imagens de banda unica (Data
+    Acquisition, Annotate, preview de calibracao de reflectancia) -- NAO
+    pelo composto RGB nem pela foto do QR da calibracao espacial, que
+    continuam servidas direto pelo MEDIA_URL normal (ver _spectral_url)."""
+    media_root = os.path.normpath(settings.MEDIA_ROOT)
+    full_path = os.path.normpath(os.path.join(media_root, subpath))
+    if not (full_path == media_root or full_path.startswith(media_root + os.sep)):
+        raise Http404()  # tentativa de sair de MEDIA_ROOT (ex.: ../../)
+    if not os.path.exists(full_path):
+        raise Http404()
+    gray = cv2.imread(full_path, cv2.IMREAD_GRAYSCALE)
+    if gray is None:
+        raise Http404()
+    colored = _apply_spectral_cmap(gray)
+    ok, buf = cv2.imencode('.png', colored)
+    if not ok:
+        raise Http404()
+    return HttpResponse(buf.tobytes(), content_type='image/png')
 
 
 def _normalize_frame(frame, white_mean, dark_mean):
@@ -1666,16 +1788,14 @@ def data_acquisition_capture(request):
 
     images = {}
     for nm, frame in frames.items():
-        ok_enc, buf = cv2.imencode('.png', frame)
-        raw_data = (f"data:image/png;base64,{base64.b64encode(buf.tobytes()).decode('ascii')}"
-                    if ok_enc else None)
+        # so preview (o save de verdade le de _acquisition_capture['frames'],
+        # os frames crus guardados acima) -- colorido pra facilitar visualizar
+        raw_data = _encode_png_b64(frame, colorize=True)
         norm_data = None
         if has_calibration:
             norm = _normalize_frame(frame, refl.means.get(nm), refl0.means.get(nm))
             if norm is not None:
-                ok_enc2, buf2 = cv2.imencode('.png', norm)
-                if ok_enc2:
-                    norm_data = f"data:image/png;base64,{base64.b64encode(buf2.tobytes()).decode('ascii')}"
+                norm_data = _encode_png_b64(norm, colorize=True)
         images[nm] = {"raw": raw_data, "norm": norm_data}
 
     rgb_data = None
@@ -1746,8 +1866,10 @@ def data_acquisition_save(request):
 def data_acquisition_delete(request, acq_id):
     """Apaga uma aquisicao: registro no banco (Annotation e ROIMeasurement
     ligados somem junto, via CASCADE) + a pasta com as fotos em
-    projects/acquisitions/<folder>/. Irreversivel -- so aceita apagar
-    aquisicao do projeto ativo (nao um id de outro projeto)."""
+    projects/acquisitions/<folder>/ (via signals.delete_acquisition_folder,
+    disparado no post_delete -- mesmo signal que cuida da limpeza quando a
+    aquisicao some em cascata junto com o projeto). Irreversivel -- so
+    aceita apagar aquisicao do projeto ativo (nao um id de outro projeto)."""
     if request.method != 'POST':
         return JsonResponse({"error": "POST"}, status=405)
     project = _get_active_project(request)
@@ -1756,10 +1878,6 @@ def data_acquisition_delete(request, acq_id):
     acq = DataAcquisition.objects.filter(id=acq_id, project=project).first()
     if not acq:
         return JsonResponse({"ok": False, "error": "Aquisição não encontrada."}, status=404)
-
-    if acq.folder:
-        folder_path = os.path.join(settings.MEDIA_ROOT, "acquisitions", acq.folder)
-        shutil.rmtree(folder_path, ignore_errors=True)
 
     acq.delete()
     return JsonResponse({"ok": True})
@@ -1855,26 +1973,11 @@ def _acquisition_rgb_path(acq):
 
 
 # ── Medicao por ROI (ROIMeasurement) ────────────────────────────────────────
-# Elipse/circulo desenhados no Annotate sempre viram poligono com EXATAMENTE
-# ANNOTATE_ELLIPSE_PTS pontos (ver ELLIPSE_PTS/ellipseToPolygon em
-# annotate.html) -- um poligono organico (mao livre + simplificacao) quase
-# sempre tem uma contagem diferente. Isso classifica a forma sem precisar de
-# nenhum estado novo no JS de desenho (undo/redo, edicao de vertice etc.
-# continuam intocados).
-ANNOTATE_ELLIPSE_PTS = 32
+# Poligono e elipse moram em campos SEPARADOS na Annotation (ver models.py) --
+# nao precisa mais adivinhar qual e qual depois (era assim antes, so pela
+# contagem de pontos, e um poligono desenhado a mao que calhasse de ter o
+# mesmo tanto de pontos de uma elipse virava classificado errado).
 ROI_POINT_RADIUS_PX = 8   # janela (em pixels) ao redor de um ROI tipo ponto, pra tirar a media
-
-
-def _classify_polygon_shape(points):
-    if len(points) != ANNOTATE_ELLIPSE_PTS:
-        return ROIMeasurement.SelectionMethod.POLYGON
-    xs = [p[0] for p in points]
-    ys = [p[1] for p in points]
-    w, h = max(xs) - min(xs), max(ys) - min(ys)
-    if w <= 0 or h <= 0:
-        return ROIMeasurement.SelectionMethod.POLYGON
-    ratio = min(w, h) / max(w, h)
-    return ROIMeasurement.SelectionMethod.CIRCLE if ratio >= 0.92 else ROIMeasurement.SelectionMethod.ELLIPSE
 
 
 def _roi_mean(gray, contour):
@@ -1908,11 +2011,11 @@ def _roi_mean(gray, contour):
 def _roi_area_px(contour):
     """Area (em px^2) do ROI descrito por `contour` -- None pra "point" (nunca
     capturou um contorno de verdade, so um raio fixo de amostragem em torno
-    de um clique). "box" e area trivial (largura x altura); circle/ellipse/
-    polygon usam a formula do poligono (shoelace) nos pontos -- funciona pra
-    QUALQUER forma fechada, incluindo a elipse/circulo do Annotate (ja
-    viram poligono de 32 pontos por baixo do capo, ver ANNOTATE_ELLIPSE_PTS),
-    sem precisar assumir nada sobre orientacao."""
+    de um clique). "box" e area trivial (largura x altura); ellipse/polygon
+    usam a formula do poligono (shoelace) nos pontos -- funciona pra
+    QUALQUER forma fechada, incluindo a elipse do Annotate (ja vira poligono
+    de 32 pontos por baixo do capo, ver ELLIPSE_PTS em annotate.html), sem
+    precisar assumir nada sobre orientacao."""
     kind = contour.get("shape")
     if kind == "box":
         return abs(contour["x2"] - contour["x1"]) * abs(contour["y2"] - contour["y1"])
@@ -1982,25 +2085,31 @@ def roi_measurement_compute(request, acq_id):
     project = _get_active_project(request)
     if not project:
         return JsonResponse({"ok": False, "error": "Selecione um projeto na Home."}, status=400)
-    acq = DataAcquisition.objects.filter(id=acq_id).first()
+    acq = _owned_acquisition(request, acq_id)
     if not acq:
         return JsonResponse({"ok": False, "error": "Aquisição não encontrada."}, status=404)
     if acq.project_id != project.id:
         return JsonResponse({"ok": False, "error": "Essa aquisição pertence a outro projeto."}, status=403)
 
     ann = getattr(acq, 'annotation', None)
-    if not ann or not (ann.boxes or ann.polygons or ann.points):
+    if not ann or not (ann.boxes or ann.ellipses or ann.polygons or ann.points):
         return JsonResponse({"ok": False,
             "error": "Nenhum ROI desenhado ainda — use box/elipse/polígono/ponto no Annotate."}, status=400)
     if not acq.folder:
         return JsonResponse({"ok": False, "error": "Aquisição sem fotos salvas."}, status=409)
 
-    subdir = _acquisition_ref_subdir(acq)   # mesma banda/pasta usada como imagem de referencia visual
+    # SEMPRE "raw" aqui, nunca "normalized" -- normalized/ ja saiu de
+    # _normalize_frame() (dark_mean->0, white_mean->255, ver
+    # data_acquisition_save), ou seja, ja E a reflectancia (calibracao ja
+    # aplicada, so pra pre-visualizacao). Ler dali e aplicar
+    # _roi_reflectance_pct DE NOVO em cima aplica a calibracao duas vezes
+    # (f(f(x)), nao idempotente) -- e o que causava reflectancia negativa e
+    # >100% erraticas, nao ruido de medicao de verdade. _acquisition_ref_subdir
+    # (que prefere normalized) e so pra imagem de REFERENCIA VISUAL no
+    # Annotate/galeria, nao serve pra esse calculo.
     frames = {}
     for nm in LED_BANDS:
-        path = os.path.join(settings.MEDIA_ROOT, "acquisitions", acq.folder, subdir, f"{nm}nm.png")
-        if not os.path.exists(path):
-            path = os.path.join(settings.MEDIA_ROOT, "acquisitions", acq.folder, "raw", f"{nm}nm.png")
+        path = os.path.join(settings.MEDIA_ROOT, "acquisitions", acq.folder, "raw", f"{nm}nm.png")
         img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
         if img is not None:
             frames[nm] = img
@@ -2016,9 +2125,10 @@ def roi_measurement_compute(request, acq_id):
     for box, lbl in zip(ann.boxes, ann.labels or [""] * len(ann.boxes)):
         rois.append((ROIMeasurement.SelectionMethod.BOX, lbl,
                     {"shape": "box", "x1": box[0], "y1": box[1], "x2": box[2], "y2": box[3]}))
+    for pts, lbl in zip(ann.ellipses, ann.ellipse_labels or [""] * len(ann.ellipses)):
+        rois.append((ROIMeasurement.SelectionMethod.ELLIPSE, lbl, {"shape": "ellipse", "points": pts}))
     for pts, lbl in zip(ann.polygons, ann.poly_labels or [""] * len(ann.polygons)):
-        method = _classify_polygon_shape(pts)
-        rois.append((method, lbl, {"shape": method, "points": pts}))
+        rois.append((ROIMeasurement.SelectionMethod.POLYGON, lbl, {"shape": "polygon", "points": pts}))
     for pt, lbl in zip(ann.points, ann.point_labels or [""] * len(ann.points)):
         rois.append((ROIMeasurement.SelectionMethod.POINT, lbl,
                     {"shape": "point", "x": pt[0], "y": pt[1]}))
@@ -2127,12 +2237,12 @@ def project_create(request):
     name = (data.get('name') or "").strip()
     if not name:
         return JsonResponse({"ok": False, "error": "Nome é obrigatório"}, status=400)
-    if Project.objects.filter(name=name).exists():
+    if Project.objects.filter(owner=request.user, name=name).exists():
         return JsonResponse({"ok": False, "error": "Já existe um projeto com esse nome"}, status=400)
 
-    source = Project.objects.filter(id=data.get('source_id')).first() if data.get('source_id') else None
+    source = _visible_projects(request).filter(id=data.get('source_id')).first() if data.get('source_id') else None
 
-    project = Project.objects.create(name=name)
+    project = Project.objects.create(owner=request.user, name=name)
     if source:
         for f in FilterPosition.objects.filter(project=source):
             FilterPosition.objects.create(project=project, index=f.index, name=f.name, steps=f.steps)
@@ -2155,7 +2265,7 @@ def project_select(request):
     if request.method != 'POST':
         return JsonResponse({"error": "POST"}, status=405)
     data = json.loads(request.body or "{}")
-    project = Project.objects.filter(id=data.get('id')).first()
+    project = _visible_projects(request).filter(id=data.get('id')).first()
     if not project:
         return JsonResponse({"ok": False, "error": "Projeto não encontrado"}, status=404)
     request.session['active_project_id'] = project.id
@@ -2164,20 +2274,31 @@ def project_select(request):
 
 @login_required
 def project_delete(request, project_id):
+    """Apaga o projeto E TUDO que pertence a ele, sem meio-termo: aquisicoes
+    (fotos das 8 bandas + arquivos em disco), anotacoes, medicoes de ROI e
+    as 3 calibracoes (com a foto de referencia de cada uma) -- tudo
+    on_delete=CASCADE (ver models.py), irreversivel. Antes as aquisicoes/
+    calibracoes so perdiam o vinculo (SET_NULL) mas continuavam ocupando
+    disco pra sempre, sem nenhuma tela no app capaz de alcancar ou apagar
+    elas depois -- pior que apagar de vez. O aviso de confirmacao (JS, ver
+    deleteProject) deixa isso explicito ANTES do usuario confirmar."""
     if request.method != 'POST':
         return JsonResponse({"error": "POST"}, status=405)
-    was_default = Project.objects.filter(id=project_id, is_default=True).exists()
-    Project.objects.filter(id=project_id).delete()
-    # aquisicoes/calibracoes que pertenciam a esse projeto NAO sao apagadas
-    # (FK SET_NULL); filtros/bandas dele, sim (FK CASCADE -- sao so config).
+    project = _visible_projects(request).filter(id=project_id).first()
+    if not project:
+        return JsonResponse({"ok": False, "error": "Projeto não encontrado"}, status=404)
+    owner = project.owner
+    was_default = project.is_default
+    project.delete()
     if was_default:
-        # sempre precisa sobrar um projeto padrao pra clonar em projetos novos
-        promoted = Project.objects.order_by('id').first()
+        # sempre precisa sobrar um projeto padrao (pra clonar em projetos
+        # novos) PRO MESMO DONO -- is_default nao atravessa usuario.
+        promoted = Project.objects.filter(owner=owner).order_by('id').first()
         if promoted:
             promoted.is_default = True
             promoted.save(update_fields=['is_default'])
     if request.session.get('active_project_id') == project_id:
-        remaining = Project.objects.first()
+        remaining = _visible_projects(request).first()
         request.session['active_project_id'] = remaining.id if remaining else None
     return JsonResponse({"ok": True})
 
@@ -2192,12 +2313,43 @@ def project_model_upload(request, project_id):
     f = request.FILES.get('file')
     if not f:
         return JsonResponse({"ok": False, "error": "Nenhum arquivo enviado"}, status=400)
-    project = Project.objects.filter(id=project_id).first()
+    project = _visible_projects(request).filter(id=project_id).first()
     if not project:
         return JsonResponse({"ok": False, "error": "Projeto não encontrado"}, status=404)
     setattr(project, f"model_{model_type}", f)
     project.save()
     return JsonResponse({"ok": True, "type": model_type, "name": f.name})
+
+
+@login_required
+@require_project
+def machine_learning(request):
+    """Pagina dedicada aos modelos do projeto ativo: upload de .pt pra
+    segmentacao/deteccao YOLO (usados pelo botao 'IA' dentro do Annotate),
+    empacotamento de dataset YOLO pra treinar essas duas fora do Pi (sem GPU
+    aqui), e o ambiente de treino de verdade da classificacao (scikit-learn,
+    roda no proprio Pi -- ver ml_classifier_train)."""
+    project = _get_active_project(request)
+    cls_dataset = {"n_samples": 0, "bands": [], "classes": {}, "ready": False,
+                    "reason": "Selecione um projeto pra ver o dataset disponível."}
+    seg_count = det_count = 0
+    if project:
+        _X, _y, band_list, class_counts = _roi_classifier_dataset(project)
+        ready, reason = _dataset_readiness(class_counts)
+        cls_dataset = {"n_samples": len(_X), "bands": band_list, "classes": class_counts,
+                        "ready": ready, "reason": reason}
+        anns = list(Annotation.objects.filter(acquisition__project=project))
+        seg_count = sum(1 for a in anns if a.polygons or a.ellipses)
+        det_count = sum(1 for a in anns if a.boxes)
+    return render(request, "pages/machine_learning.html", {
+        "active_project": project,
+        "ml_algorithms": ML_ALGORITHMS,
+        "cls_dataset": cls_dataset,
+        "cls_model_info": (project.model_cls_info if project else {}) or {},
+        "seg_annotated_count": seg_count,
+        "det_annotated_count": det_count,
+        "led_colors": LED_COLORS,
+    })
 
 
 # ── Annotations (grade de aquisicoes do projeto ativo) ─────────────────────────
@@ -2212,6 +2364,7 @@ def annotations_list(request):
         for acq in project.acquisitions.all():
             ann = getattr(acq, 'annotation', None)
             n_boxes = len(ann.boxes) if ann else 0
+            n_ellipses = len(ann.ellipses) if ann else 0
             n_polygons = len(ann.polygons) if ann else 0
             n_points = len(ann.points) if ann else 0
             image_label = ann.image_label if ann else ""
@@ -2222,8 +2375,8 @@ def annotations_list(request):
                 "name": acq.name or f"Aquisição {acq.id}",
                 "created": acq.created,
                 "thumb_url": _acquisition_ref_image_url(acq),
-                "annotated": n_boxes > 0 or n_polygons > 0 or n_points > 0,
-                "n_boxes": n_boxes, "n_polygons": n_polygons, "n_points": n_points,
+                "annotated": n_boxes > 0 or n_ellipses > 0 or n_polygons > 0 or n_points > 0,
+                "n_boxes": n_boxes, "n_ellipses": n_ellipses, "n_polygons": n_polygons, "n_points": n_points,
                 "n_rois": acq.roi_measurements.count(),
                 "image_label": image_label,
             })
@@ -2293,11 +2446,12 @@ def _agg_stats(values):
 def roi_measurements_view(request):
     """Tabela com a medicao de cada ROI (imagem, metodo e numero do ROI
     sempre juntos na mesma linha -- 'linkado', como pedido) do projeto ativo.
-    Cada ROI vira 2 linhas na tabela quando tem reflectancia calculada (bruto
-    0-255 + reflectancia %, ambos visiveis lado a lado) -- so 1 linha (bruto)
-    quando nao havia calibracao no momento da medicao. As colunas
-    Imagem/Metodo/ROI/Label sao mescladas (rowspan) entre as 2 linhas da
-    mesma medicao, pra nao repetir.
+    1 linha por ROI: mostra reflectancia (%) quando tinha calibracao no
+    momento da medicao, ou bruto (0-255) como fallback quando nao tinha --
+    bruto sozinho nao tem valor cientifico (depende de exposicao/intensidade
+    de LED, nao e comparavel entre capturas), entao so aparece aqui quando e
+    a UNICA informacao disponivel; pra analise tecnica (saturacao etc.) ele
+    continua disponivel no export CSV, sempre, ver export_roi_measurements.
 
     Tambem agrega estatistica (n/media/desvio padrao por banda) por GRUPO
     EXPERIMENTAL -- ver _condition_of/NO_CONDITION_LABEL. Serve pra
@@ -2316,7 +2470,8 @@ def roi_measurements_view(request):
     for r in rois:
         condition = _condition_of(r.acquisition)
         conditions_seen.add(condition)
-        base = {
+        has_refl = bool(r.reflectance)
+        rows.append({
             "image": r.acquisition.name or f"acq_{r.acquisition_id}",
             "acq_id": r.acquisition_id,
             "method": r.get_method_display(),
@@ -2327,15 +2482,9 @@ def roi_measurements_view(request):
             "area": _fmt_area(r.area_px, r.area_mm2),
             "bbox_w": _fmt_len(r.bbox_width_px, r.bbox_width_mm),
             "bbox_h": _fmt_len(r.bbox_height_px, r.bbox_height_mm),
-        }
-        has_refl = bool(r.reflectance)
-        rows.append({**base, "is_first": True, "row_span": 2 if has_refl else 1,
-                     "is_reflectance": False,
-                     "values": [r.means.get(nm) for nm in band_list]})
-        if has_refl:
-            rows.append({**base, "is_first": False, "row_span": 1,
-                         "is_reflectance": True,
-                         "values": [r.reflectance.get(nm) for nm in band_list]})
+            "is_reflectance": has_refl,
+            "values": [(r.reflectance.get(nm) if has_refl else r.means.get(nm)) for nm in band_list],
+        })
 
         for nm, v in r.means.items():
             raw_by_condition.setdefault(condition, {}).setdefault(nm, []).append(v)
@@ -2376,7 +2525,7 @@ def export_roi_measurements(request):
     if request.method != 'POST':
         return JsonResponse({"error": "POST"}, status=405)
     ids = (json.loads(request.body or "{}")).get('ids') or []
-    rois = (ROIMeasurement.objects.filter(acquisition_id__in=ids)
+    rois = (ROIMeasurement.objects.filter(acquisition_id__in=ids, acquisition__project__in=_visible_projects(request))
             .select_related('acquisition').order_by('acquisition__name', 'method', 'index'))
 
     band_list = list(LED_BANDS.keys())
@@ -2402,7 +2551,7 @@ def export_roi_measurements(request):
 def annotation_image_label(request, acq_id):
     if request.method != 'POST':
         return JsonResponse({"error": "POST"}, status=405)
-    acq = DataAcquisition.objects.filter(id=acq_id).first()
+    acq = _owned_acquisition(request, acq_id)
     if not acq:
         return JsonResponse({"ok": False, "error": "Aquisição não encontrada"}, status=404)
     data = json.loads(request.body or "{}")
@@ -2417,9 +2566,8 @@ def annotation_image_label(request, acq_id):
 @login_required
 @require_project
 def annotate_view(request, acq_id):
-    acq = DataAcquisition.objects.filter(id=acq_id).first()
+    acq = _owned_acquisition(request, acq_id)
     if not acq:
-        from django.http import Http404
         raise Http404("Aquisição não encontrada")
     active_project = _get_active_project(request)
     if acq.project_id != active_project.id:
@@ -2438,7 +2586,7 @@ def annotate_view(request, acq_id):
     # reescala/clampa a imagem, o que pode disfarcar saturacao real do
     # sensor; a foto crua e o jeito confiavel de ver isso a olho.
     band_thumbs = [{"nm": nm, "color": LED_COLORS[nm],
-                    "url": f"{settings.MEDIA_URL}acquisitions/{acq.folder}/raw/{nm}nm.png"}
+                    "url": _spectral_url(f"{settings.MEDIA_URL}acquisitions/{acq.folder}/raw/{nm}nm.png")}
                    for nm in LED_BANDS] if acq.folder else []
     return render(request, "pages/annotate.html", {
         "acq": acq, "ann": ann,
@@ -2454,112 +2602,34 @@ def annotate_view(request, acq_id):
 def annotation_save(request, acq_id):
     if request.method != 'POST':
         return JsonResponse({"error": "POST"}, status=405)
-    acq = DataAcquisition.objects.filter(id=acq_id).first()
+    acq = _owned_acquisition(request, acq_id)
     if not acq:
         return JsonResponse({"ok": False, "error": "Aquisição não encontrada"}, status=404)
     data = json.loads(request.body or "{}")
     boxes = data.get('boxes', [])
     labels = data.get('labels', [""] * len(boxes))
+    ellipses = data.get('ellipses', [])
+    ellipse_labels = data.get('ellipse_labels', [""] * len(ellipses))
     polygons = data.get('polygons', [])
     poly_labels = data.get('poly_labels', [""] * len(polygons))
     points = data.get('points', [])
     point_labels = data.get('point_labels', [""] * len(points))
     ann, _ = Annotation.objects.get_or_create(acquisition=acq)
     ann.boxes, ann.labels = boxes, labels
+    ann.ellipses, ann.ellipse_labels = ellipses, ellipse_labels
     ann.polygons, ann.poly_labels = polygons, poly_labels
     ann.points, ann.point_labels = points, point_labels
     if 'image_label' in data:
         ann.image_label = (data.get('image_label') or "").strip()
     ann.save()
     return JsonResponse({"ok": True, "saved": len(boxes),
-                         "n_polygons": len(polygons), "n_points": len(points)})
+                         "n_ellipses": len(ellipses), "n_polygons": len(polygons), "n_points": len(points)})
 
 
 # ── Exportacao ────────────────────────────────────────────────────────────────
-
-@login_required
-def export_yolo_boxes(request):
-    if request.method != 'POST':
-        return JsonResponse({"error": "POST"}, status=405)
-    ids = (json.loads(request.body or "{}")).get('ids') or []
-    anns = [a for a in Annotation.objects.filter(acquisition_id__in=ids).select_related('acquisition') if a.boxes]
-
-    all_labels = set()
-    for a in anns:
-        all_labels.update(a.labels or [])
-    label_map = {lbl: i for i, lbl in enumerate(sorted(all_labels))}
-    output = {"label_map": label_map, "acquisitions": {}, "annotations": {}}
-
-    for a in anns:
-        dims = _acq_image_dims(a.acquisition)
-        if not dims:
-            continue
-        img_w, img_h = dims
-        lines = []
-        for (x1, y1, x2, y2), lbl in zip(a.boxes, a.labels or [""] * len(a.boxes)):
-            cls = label_map.get(lbl, 0)
-            cx, cy = ((x1 + x2) / 2) / img_w, ((y1 + y2) / 2) / img_h
-            bw, bh = (x2 - x1) / img_w, (y2 - y1) / img_h
-            lines.append(f"{cls} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
-        key = a.acquisition.name or f"acq_{a.acquisition.id}"
-        output["acquisitions"][key] = a.acquisition.id
-        output["annotations"][key] = lines
-    return JsonResponse(output)
-
-
-@login_required
-def export_yolo_seg(request):
-    if request.method != 'POST':
-        return JsonResponse({"error": "POST"}, status=405)
-    ids = (json.loads(request.body or "{}")).get('ids') or []
-    anns = [a for a in Annotation.objects.filter(acquisition_id__in=ids).select_related('acquisition') if a.polygons]
-
-    all_labels = set()
-    for a in anns:
-        all_labels.update(a.poly_labels or [])
-    label_map = {lbl: i for i, lbl in enumerate(sorted(all_labels))}
-    output = {"label_map": label_map, "acquisitions": {}, "annotations": {}}
-
-    for a in anns:
-        dims = _acq_image_dims(a.acquisition)
-        if not dims:
-            continue
-        img_w, img_h = dims
-        lines = []
-        for poly, lbl in zip(a.polygons, a.poly_labels or [""] * len(a.polygons)):
-            cls = label_map.get(lbl, 0)
-            pts_norm = " ".join(f"{x/img_w:.6f} {y/img_h:.6f}" for x, y in poly)
-            lines.append(f"{cls} {pts_norm}")
-        key = a.acquisition.name or f"acq_{a.acquisition.id}"
-        output["acquisitions"][key] = a.acquisition.id
-        output["annotations"][key] = lines
-    return JsonResponse(output)
-
-
-@login_required
-def export_points(request):
-    ids = None
-    if request.method == 'POST':
-        ids = (json.loads(request.body or "{}")).get('ids')
-    qs = Annotation.objects.select_related('acquisition').all()
-    if ids:
-        qs = qs.filter(acquisition_id__in=ids)
-    output = {"annotations": {}}
-    for a in qs:
-        if not a.points:
-            continue
-        dims = _acq_image_dims(a.acquisition)
-        if not dims:
-            continue
-        img_w, img_h = dims
-        labels = a.point_labels or [""] * len(a.points)
-        key = a.acquisition.name or f"acq_{a.acquisition.id}"
-        output["annotations"][key] = [
-            {"x": x, "y": y, "x_norm": x / img_w, "y_norm": y / img_h, "label": lbl}
-            for (x, y), lbl in zip(a.points, labels)
-        ]
-    return JsonResponse(output)
-
+# (export_yolo_boxes/export_yolo_seg antigos, que so devolviam JSON cru sem
+# imagem, foram substituidos por ml_dataset_export -- ver Machine Learning --
+# que gera o .zip completo pronto pra treinar.)
 
 @login_required
 def export_classification(request):
@@ -2568,7 +2638,8 @@ def export_classification(request):
     ids = (json.loads(request.body or "{}")).get('ids') or []
     label_map = {}
     samples = []
-    anns = Annotation.objects.filter(acquisition_id__in=ids).select_related('acquisition').order_by('acquisition_id')
+    anns = (Annotation.objects.filter(acquisition_id__in=ids, acquisition__project__in=_visible_projects(request))
+            .select_related('acquisition').order_by('acquisition_id'))
     for a in anns:
         img_label = (a.image_label or "").strip()
         if not img_label:
@@ -2637,7 +2708,7 @@ def _contour_from_box(img, x1, y1, x2, y2):
 
 @login_required
 def auto_segment_otsu(request, acq_id):
-    acq = DataAcquisition.objects.filter(id=acq_id).first()
+    acq = _owned_acquisition(request, acq_id)
     if not acq:
         return JsonResponse({"error": "imagem não encontrada"}, status=404)
     img = _load_ref_image(acq)
@@ -2698,7 +2769,7 @@ def auto_polygon_from_boxes(request, acq_id):
     auto_annotate.py do app original, mas sob demanda por aquisicao)."""
     if request.method != 'POST':
         return JsonResponse({"error": "POST"}, status=405)
-    acq = DataAcquisition.objects.filter(id=acq_id).first()
+    acq = _owned_acquisition(request, acq_id)
     if not acq:
         return JsonResponse({"error": "imagem não encontrada"}, status=404)
     img = _load_ref_image(acq)
@@ -2720,7 +2791,7 @@ def auto_polygon_from_boxes(request, acq_id):
 
 @login_required
 def auto_segment_det(request, acq_id):
-    acq = DataAcquisition.objects.filter(id=acq_id).first()
+    acq = _owned_acquisition(request, acq_id)
     if not acq:
         return JsonResponse({"error": "imagem não encontrada"}, status=404)
     project = acq.project
@@ -2760,7 +2831,7 @@ def auto_segment_det(request, acq_id):
 
 @login_required
 def auto_segment_yolo(request, acq_id):
-    acq = DataAcquisition.objects.filter(id=acq_id).first()
+    acq = _owned_acquisition(request, acq_id)
     if not acq:
         return JsonResponse({"error": "imagem não encontrada"}, status=404)
     project = acq.project
@@ -2827,17 +2898,28 @@ def auto_segment_yolo(request, acq_id):
 def auto_classify(request, acq_id):
     if request.method != 'POST':
         return JsonResponse({"error": "POST"}, status=405)
-    acq = DataAcquisition.objects.filter(id=acq_id).first()
+    acq = _owned_acquisition(request, acq_id)
     if not acq:
         return JsonResponse({"error": "imagem não encontrada"}, status=404)
     project = acq.project
     if not project or not project.model_cls:
         return JsonResponse({"error": "Modelo de classificação não configurado."}, status=404)
+    if (project.model_cls_info or {}).get("algorithm") in ML_ALGORITHMS:
+        # o CLS atual foi treinado pelo ambiente de classificacao por
+        # assinatura espectral (Machine Learning -> "Treinar classificação"),
+        # nao e um modelo YOLO de imagem -- essa previsao ainda nao foi
+        # integrada aqui no Annotate (precisa da reflectancia do ROI, que so
+        # existe DEPOIS de "Calcular ROIs", nao no momento de desenhar).
+        return JsonResponse({"error": "O modelo CLS deste projeto foi treinado por assinatura "
+                             "espectral (página Machine Learning) e ainda não é usado aqui no "
+                             "Annotate -- essa previsão funciona sobre o ROI já medido, não a "
+                             "imagem. Use Otsu/YOLO seg/det pra anotar automaticamente."}, status=400)
     img = _load_ref_image(acq)
     if img is None:
         return JsonResponse({"error": "imagem não encontrada"}, status=404)
     data = json.loads(request.body or "{}")
     boxes = data.get('boxes', [])
+    ellipses = data.get('ellipses', [])
     polygons = data.get('polygons', [])
     try:
         from ultralytics import YOLO
@@ -2860,16 +2942,366 @@ def auto_classify(request, acq_id):
             crop = img[max(0, y1):min(img_h, y2), max(0, x1):min(img_w, x2)]
             box_labels.append(classify_crop(crop))
 
-        poly_labels = []
-        for pts in polygons:
-            if not pts:
-                poly_labels.append(""); continue
-            xs, ys = [p[0] for p in pts], [p[1] for p in pts]
-            x1, y1 = max(0, min(xs)), max(0, min(ys))
-            x2, y2 = min(img_w, max(xs)), min(img_h, max(ys))
-            crop = img[y1:y2, x1:x2]
-            poly_labels.append(classify_crop(crop))
+        def classify_points(pts_list):
+            out = []
+            for pts in pts_list:
+                if not pts:
+                    out.append(""); continue
+                xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+                x1, y1 = max(0, min(xs)), max(0, min(ys))
+                x2, y2 = min(img_w, max(xs)), min(img_h, max(ys))
+                out.append(classify_crop(img[y1:y2, x1:x2]))
+            return out
 
-        return JsonResponse({"box_labels": box_labels, "poly_labels": poly_labels})
+        ellipse_labels = classify_points(ellipses)
+        poly_labels = classify_points(polygons)
+
+        return JsonResponse({"box_labels": box_labels, "ellipse_labels": ellipse_labels,
+                             "poly_labels": poly_labels})
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+
+# ─────────────────────────────────────────────────────────────
+# Machine Learning -- treino do classificador por assinatura espectral
+# (scikit-learn, roda no proprio Pi: dataset tabular pequeno, sem precisar
+# de GPU) e empacotamento de dataset YOLO pra segmentacao/deteccao (esses
+# dois treinam FORA do Pi -- sem GPU nao rola -- aqui so preparamos o .zip
+# no formato certo; o .pt treinado volta por upload em Machine Learning).
+# ─────────────────────────────────────────────────────────────
+
+ML_ALGORITHMS = {
+    "random_forest": {
+        "label": "Random Forest",
+        "params": {
+            "n_estimators":     {"type": "int", "min": 10, "max": 500, "step": 10, "default": 100},
+            "max_depth":        {"type": "int_or_none", "min": 1, "max": 30, "step": 1, "default": None},
+            "min_samples_leaf": {"type": "int", "min": 1, "max": 10, "step": 1, "default": 1},
+        },
+    },
+    "svm": {
+        "label": "SVM",
+        "params": {
+            "C":      {"type": "float", "min": 0.01, "max": 100.0, "step": 0.01, "default": 1.0, "log": True},
+            "kernel": {"type": "choice", "choices": ["linear", "rbf", "poly"], "default": "rbf"},
+            "gamma":  {"type": "choice", "choices": ["scale", "auto"], "default": "scale"},
+        },
+    },
+    "logistic_regression": {
+        "label": "Regressão Logística",
+        "params": {
+            "C":        {"type": "float", "min": 0.01, "max": 100.0, "step": 0.01, "default": 1.0, "log": True},
+            "max_iter": {"type": "int", "min": 100, "max": 2000, "step": 100, "default": 500},
+        },
+    },
+    "knn": {
+        "label": "K-Nearest Neighbors",
+        "params": {
+            "n_neighbors": {"type": "int", "min": 1, "max": 20, "step": 1, "default": 5},
+            "weights":     {"type": "choice", "choices": ["uniform", "distance"], "default": "uniform"},
+        },
+    },
+}
+
+
+def _clamp_params(algorithm, raw_params):
+    """Sanitiza os hiperparametros recebidos do cliente contra os limites
+    de ML_ALGORITHMS -- nunca confia em valor de fora da faixa (evita, por
+    ex., travar o Pi com um n_estimators absurdo vindo do navegador)."""
+    spec = ML_ALGORITHMS[algorithm]["params"]
+    raw_params = raw_params or {}
+    out = {}
+    for name, p in spec.items():
+        val = raw_params.get(name, p["default"])
+        if p["type"] == "int":
+            try:
+                val = int(val)
+            except (TypeError, ValueError):
+                val = p["default"]
+            val = max(p["min"], min(p["max"], val))
+        elif p["type"] == "int_or_none":
+            if val in (None, "", "none", "None"):
+                val = None
+            else:
+                try:
+                    val = max(p["min"], min(p["max"], int(val)))
+                except (TypeError, ValueError):
+                    val = p["default"]
+        elif p["type"] == "float":
+            try:
+                val = float(val)
+            except (TypeError, ValueError):
+                val = p["default"]
+            val = max(p["min"], min(p["max"], val))
+        elif p["type"] == "choice":
+            if val not in p["choices"]:
+                val = p["default"]
+        out[name] = val
+    return out
+
+
+def _build_estimator(algorithm, params):
+    if algorithm == "random_forest":
+        from sklearn.ensemble import RandomForestClassifier
+        return RandomForestClassifier(
+            n_estimators=params["n_estimators"], max_depth=params["max_depth"],
+            min_samples_leaf=params["min_samples_leaf"], random_state=42, n_jobs=1)
+    if algorithm == "svm":
+        from sklearn.svm import SVC
+        return SVC(C=params["C"], kernel=params["kernel"], gamma=params["gamma"], random_state=42)
+    if algorithm == "logistic_regression":
+        from sklearn.linear_model import LogisticRegression
+        return LogisticRegression(C=params["C"], max_iter=params["max_iter"])
+    if algorithm == "knn":
+        from sklearn.neighbors import KNeighborsClassifier
+        return KNeighborsClassifier(n_neighbors=params["n_neighbors"], weights=params["weights"])
+    raise ValueError(f"algoritmo desconhecido: {algorithm}")
+
+
+def _roi_classifier_dataset(project):
+    """Monta X (reflectancia -- 1 feature por banda de LED_BANDS) / y
+    (condicao da bandeja, ver _condition_of) a partir dos ROIMeasurement do
+    projeto. So entram ROIs com reflectancia calculada em TODAS as bandas
+    (precisa de calibracao 100%/0% -- sem isso o ROI so tem bruto, ver
+    roi_measurement_compute) E com condicao definida (ignora
+    NO_CONDITION_LABEL -- isso e "ainda nao rotulado", nao uma classe de
+    verdade). Retorna (X, y, band_list, class_counts)."""
+    band_list = list(LED_BANDS.keys())
+    rois = (ROIMeasurement.objects.filter(project=project)
+            .select_related('acquisition', 'acquisition__annotation'))
+    X, y = [], []
+    for r in rois:
+        refl = r.reflectance or {}
+        if not all(refl.get(b) is not None for b in band_list):
+            continue
+        condition = _condition_of(r.acquisition)
+        if condition == NO_CONDITION_LABEL:
+            continue
+        X.append([refl[b] for b in band_list])
+        y.append(condition)
+    class_counts = {}
+    for c in y:
+        class_counts[c] = class_counts.get(c, 0) + 1
+    return np.array(X, dtype=float), np.array(y), band_list, class_counts
+
+
+def _dataset_readiness(class_counts):
+    """(pronto, motivo) -- precisa de pelo menos 2 condicoes diferentes e
+    pelo menos 2 ROIs na condicao com menos amostras (minimo pra um k-fold
+    com k=2 fazer sentido)."""
+    n_classes = len(class_counts)
+    if n_classes < 2:
+        return False, "Precisa de pelo menos 2 condições diferentes com ROIs medidos (ex.: 'verde' e 'normal')."
+    min_class = min(class_counts.values()) if class_counts else 0
+    if min_class < 2:
+        return False, f"A condição com menos ROIs medidos só tem {min_class} — precisa de pelo menos 2 por condição."
+    return True, ""
+
+
+@login_required
+@require_project
+def ml_classifier_estimate(request):
+    """Estimativa de tempo de treino ANTES do usuario confirmar -- cronometra
+    UM fit de verdade (algoritmo + hiperparametros escolhidos, dataset
+    COMPLETO) e multiplica pela quantidade de fits que o treino real vai
+    fazer (k-fold + 1 final). Testamos primeiro extrapolar a partir de uma
+    amostra pequena (mais rapido), mas pra Random Forest o custo e dominado
+    pelo numero de arvores (overhead de paralelismo do joblib por arvore),
+    quase nao pelo tamanho da amostra -- extrapolar por proporcao de amostra
+    superestimava em ~8x. Medir o fit inteiro de uma vez e mais lento (da
+    ordem de 1 fit real) mas correto pra qualquer algoritmo."""
+    if request.method != 'POST':
+        return JsonResponse({"error": "POST"}, status=405)
+    project = _get_active_project(request)
+    data = json.loads(request.body or "{}")
+    algorithm = data.get('algorithm')
+    if algorithm not in ML_ALGORITHMS:
+        return JsonResponse({"ok": False, "error": "Algoritmo desconhecido."}, status=400)
+    params = _clamp_params(algorithm, data.get('params'))
+    X, y, _band_list, class_counts = _roi_classifier_dataset(project)
+    ready, reason = _dataset_readiness(class_counts)
+    if not ready:
+        return JsonResponse({"ok": False, "error": reason}, status=400)
+    try:
+        from sklearn.preprocessing import StandardScaler
+        est = _build_estimator(algorithm, params)
+        t0 = time.perf_counter()
+        est.fit(StandardScaler().fit_transform(X), y)
+        per_fit = max(time.perf_counter() - t0, 0.001)
+        k = min(5, min(class_counts.values()))
+        estimate = per_fit * (k + 1)  # k fits da validacao cruzada + 1 fit final com tudo
+        return JsonResponse({"ok": True, "estimated_seconds": round(estimate, 3), "n_samples": len(X), "cv_folds": k})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+
+
+@login_required
+@require_project
+def ml_classifier_train(request):
+    """Treina de verdade: valida com k-fold estratificado (k = min(5, menor
+    classe)) pra medir acuracia sem enviesar com os mesmos dados usados no
+    treino, depois treina um modelo final com TODOS os dados e salva (joblib)
+    em project.model_cls -- e o que auto_classify vai carregar depois pra
+    prever a condicao de um ROI novo pela assinatura espectral dele."""
+    if request.method != 'POST':
+        return JsonResponse({"error": "POST"}, status=405)
+    project = _get_active_project(request)
+    data = json.loads(request.body or "{}")
+    algorithm = data.get('algorithm')
+    if algorithm not in ML_ALGORITHMS:
+        return JsonResponse({"ok": False, "error": "Algoritmo desconhecido."}, status=400)
+    params = _clamp_params(algorithm, data.get('params'))
+    X, y, band_list, class_counts = _roi_classifier_dataset(project)
+    ready, reason = _dataset_readiness(class_counts)
+    if not ready:
+        return JsonResponse({"ok": False, "error": reason}, status=400)
+    try:
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.model_selection import StratifiedKFold
+        from sklearn.metrics import confusion_matrix
+        from sklearn.pipeline import Pipeline
+        import joblib
+
+        classes = sorted(class_counts.keys())
+        k = min(5, min(class_counts.values()))
+        skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=42)
+
+        t0 = time.perf_counter()
+        accuracies = []
+        y_pred_cv = np.empty_like(y)
+        for train_idx, test_idx in skf.split(X, y):
+            fold_pipe = Pipeline([("scaler", StandardScaler()), ("clf", _build_estimator(algorithm, params))])
+            fold_pipe.fit(X[train_idx], y[train_idx])
+            pred = fold_pipe.predict(X[test_idx])
+            y_pred_cv[test_idx] = pred
+            accuracies.append(float((pred == y[test_idx]).mean()))
+        cm = confusion_matrix(y, y_pred_cv, labels=classes)
+
+        final_pipe = Pipeline([("scaler", StandardScaler()), ("clf", _build_estimator(algorithm, params))])
+        final_pipe.fit(X, y)
+        train_seconds = time.perf_counter() - t0
+
+        feature_importance = None
+        clf = final_pipe.named_steps["clf"]
+        if hasattr(clf, "feature_importances_"):
+            feature_importance = [{"band": b, "importance": float(v)}
+                                   for b, v in zip(band_list, clf.feature_importances_)]
+        elif hasattr(clf, "coef_"):
+            coefs = np.abs(clf.coef_).mean(axis=0)  # multi-classe: 1 linha de coef por classe, tira a media
+            feature_importance = [{"band": b, "importance": float(v)} for b, v in zip(band_list, coefs)]
+
+        if project.model_cls:
+            project.model_cls.delete(save=False)  # nao deixa modelo antigo orfao em disco
+        buf = io.BytesIO()
+        joblib.dump(final_pipe, buf)
+        buf.seek(0)
+        project.model_cls.save(f"cls_{algorithm}.joblib", ContentFile(buf.read()), save=False)
+
+        info = {
+            "algorithm": algorithm, "params": params, "bands": band_list,
+            "classes": classes, "cv_folds": k,
+            "cv_accuracy_mean": float(np.mean(accuracies)), "cv_accuracy_std": float(np.std(accuracies)),
+            "confusion_matrix": cm.tolist(), "n_samples": len(X),
+            "feature_importance": feature_importance,
+            "trained_at": timezone.now().isoformat(), "train_seconds": round(train_seconds, 3),
+        }
+        project.model_cls_info = info
+        project.save(update_fields=["model_cls", "model_cls_info"])
+        return JsonResponse({"ok": True, "info": info})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+
+
+@login_required
+@require_project
+def ml_dataset_export(request):
+    """Empacota um dataset YOLO (segmentacao ou deteccao) com anotacoes do
+    projeto ativo -- imagens + labels em images/<train|val>/ e
+    labels/<train|val>/ + data.yaml, pronto pra treinar fora do Pi (sem GPU
+    aqui, o treino de verdade acontece em outra maquina/Colab, ver
+    tools/yolo_trainer_gui.py) e depois subir o .pt resultante em Machine
+    Learning. Chamado tanto pelo botao 'Exportar' de Annotations (`ids` = so
+    as amostras selecionadas ali) quanto pela pagina Machine Learning
+    (sem `ids` = todas as amostras anotadas do projeto)."""
+    if request.method != 'POST':
+        return JsonResponse({"error": "POST"}, status=405)
+    project = _get_active_project(request)
+    data = json.loads(request.body or "{}")
+    task = data.get('task')
+    if task not in ('seg', 'det'):
+        return JsonResponse({"ok": False, "error": "task deve ser 'seg' ou 'det'"}, status=400)
+    try:
+        val_split = float(data.get('val_split', 0.2))
+    except (TypeError, ValueError):
+        val_split = 0.2
+    val_split = max(0.05, min(0.5, val_split))
+    ids = data.get('ids') or None
+
+    anns_qs = Annotation.objects.filter(acquisition__project=project).select_related('acquisition')
+    if ids:
+        anns_qs = anns_qs.filter(acquisition_id__in=ids)
+    items = []
+    all_labels = set()
+    for a in anns_qs:
+        # "seg" combina elipse + poligono -- os dois sao contorno fechado
+        # valido pra treinar segmentacao, so moram em campos separados
+        # desde que pararam de ser confundidos um com o outro (ver models.py).
+        if task == 'seg':
+            shapes = list(a.ellipses) + list(a.polygons)
+            labels = list(a.ellipse_labels or [""] * len(a.ellipses)) + list(a.poly_labels or [""] * len(a.polygons))
+        else:
+            shapes, labels = a.boxes, a.labels
+        if not shapes:
+            continue
+        dims = _acq_image_dims(a.acquisition)
+        img_path = _acquisition_ref_image_path(a.acquisition)
+        if not dims or not img_path:
+            continue
+        img_w, img_h = dims
+        labels = labels or [""] * len(shapes)
+        all_labels.update(l for l in labels if l)
+        items.append((a.acquisition, img_path, shapes, labels, img_w, img_h))
+
+    if not items:
+        shape_kind = "polígonos" if task == 'seg' else "caixas"
+        return JsonResponse({"ok": False,
+            "error": f"Nenhuma anotação com {shape_kind} encontrada nesse projeto."}, status=400)
+
+    label_map = {lbl: i for i, lbl in enumerate(sorted(all_labels))} if all_labels else {"": 0}
+
+    rng = np.random.RandomState(42)
+    order = list(range(len(items)))
+    rng.shuffle(order)
+    n_val = max(1, round(len(order) * val_split)) if len(order) > 1 else 0
+    val_idx = set(order[:n_val])
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip")
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+        for i, (acq, img_path, shapes, labels, img_w, img_h) in enumerate(items):
+            split = "val" if i in val_idx else "train"
+            stem = re.sub(r'[^A-Za-z0-9_.-]+', '_', acq.name or f"acq_{acq.id}")
+            ext = os.path.splitext(img_path)[1] or ".png"
+
+            lines = []
+            for shape, lbl in zip(shapes, labels):
+                cls = label_map.get(lbl, 0)
+                if task == 'seg':
+                    pts_norm = " ".join(f"{x / img_w:.6f} {y / img_h:.6f}" for x, y in shape)
+                    lines.append(f"{cls} {pts_norm}")
+                else:
+                    x1, y1, x2, y2 = shape
+                    cx, cy = ((x1 + x2) / 2) / img_w, ((y1 + y2) / 2) / img_h
+                    bw, bh = (x2 - x1) / img_w, (y2 - y1) / img_h
+                    lines.append(f"{cls} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
+
+            zf.write(img_path, f"images/{split}/{stem}{ext}")
+            zf.writestr(f"labels/{split}/{stem}.txt", "\n".join(lines))
+
+        names_yaml = "\n".join(f"  {i}: {name or 'sem_label'}"
+                                for name, i in sorted(label_map.items(), key=lambda kv: kv[1]))
+        data_yaml = f"path: .\ntrain: images/train\nval: images/val\nnames:\n{names_yaml}\n"
+        zf.writestr("data.yaml", data_yaml)
+    tmp.seek(0)
+
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    return FileResponse(tmp, as_attachment=True, filename=f"dataset_{task}_{stamp}.zip")

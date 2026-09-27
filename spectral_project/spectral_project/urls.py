@@ -44,11 +44,14 @@ urlpatterns = [
     path('projects/<int:project_id>/delete/', views.project_delete, name='project_delete'),
     path('projects/<int:project_id>/model/', views.project_model_upload, name='project_model_upload'),
 
+    # Machine Learning (gerenciamento dos modelos .pt do projeto ativo)
+    path('machine-learning/', views.machine_learning, name='machine_learning'),
+    path('machine-learning/classifier/estimate/', views.ml_classifier_estimate, name='ml_classifier_estimate'),
+    path('machine-learning/classifier/train/', views.ml_classifier_train, name='ml_classifier_train'),
+    path('machine-learning/dataset/export/', views.ml_dataset_export, name='ml_dataset_export'),
+
     # Annotations (grade de aquisicoes do projeto ativo + editor de anotacao)
     path('annotations/', views.annotations_list, name='annotations_list'),
-    path('annotations/export/yolo/boxes/', views.export_yolo_boxes, name='export_yolo_boxes'),
-    path('annotations/export/yolo/seg/', views.export_yolo_seg, name='export_yolo_seg'),
-    path('annotations/export/points/', views.export_points, name='export_points'),
     path('annotations/export/classification/', views.export_classification, name='export_classification'),
     path('annotations/<int:acq_id>/', views.annotate_view, name='annotate_view'),
     path('annotations/<int:acq_id>/save/', views.annotation_save, name='annotation_save'),
@@ -76,6 +79,11 @@ urlpatterns = [
     path('parameterization/save/', views.param_save, name='param_save'),
     path('parameterization/camera/save/', views.param_camera_save, name='param_camera_save'),
     path('parameterization/camera/reset/', views.param_camera_reset, name='param_camera_reset'),
+
+    # Imagem de banda unica com o colormap Spectral aplicado (so exibicao,
+    # ver views._spectral_url/band_image_colored) -- <path:subpath> espelha
+    # a mesma estrutura de pasta usada dentro de MEDIA_ROOT.
+    path('spectral-view/<path:subpath>', views.band_image_colored, name='band_image_colored'),
 ]
 
 # serve os arquivos de MEDIA (imagens de calibracao) no modo dev
