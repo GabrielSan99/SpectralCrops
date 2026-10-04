@@ -679,7 +679,10 @@
     }
 
     if (mode === 'polygon') {
-      if (currentPoly.length >= 6) { snapshot(); polygons.push(simplifyPath(currentPoly, 1.5)); poly_labels.push(''); }
+      if (currentPoly.length >= 6) {
+        const s = simplifyPath(currentPoly, 1.5);
+        if (isClosedSurface(s)) { snapshot(); polygons.push(s); poly_labels.push(''); }
+      }
       currentPoly = []; redraw();
     }
   });
@@ -782,6 +785,16 @@
   }
 
   // ── RDP simplification ────────────────────────────────────────────────────
+  function isClosedSurface(pts) {
+    if (pts.length < 3) return false;
+    let area2 = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+      area2 += x1 * y2 - x2 * y1;
+    }
+    return area2 !== 0;
+  }
+
   function simplifyPath(pts,epsilon) {
     if (pts.length<=2) return pts;
     const first=pts[0],last=pts[pts.length-1];
@@ -942,12 +955,11 @@
       if (!ok || data.error) { flashMsg(`Erro: ${data.error || 'falha'}`, '#f87171'); return; }
       if (!data.polygons || data.polygons.length === 0) { flashMsg('Nenhum contorno encontrado.', '#fbbf24'); return; }
       snapshot();
-      polygons.length = 0; poly_labels.length = 0;
       polygons.push(...data.polygons);
       poly_labels.push(...Array(data.polygons.length).fill(''));
       selectedPolyIdx = polygons.length - 1;
       redraw();
-      flashMsg(`✓ ${data.count} contorno(s) gerados`, '#4ade80');
+      flashMsg(`✓ ${data.count} contorno(s) da IA adicionados — revise e apague os errados`, '#4ade80');
     } catch(e) { flashMsg(`Erro de rede: ${e.message}`, '#f87171'); }
   }
 

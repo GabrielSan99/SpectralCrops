@@ -30,6 +30,8 @@ import queue
 import threading
 import subprocess
 import tkinter as tk
+
+import yaml
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
 
@@ -46,7 +48,6 @@ except ImportError:
     HAS_ULTRALYTICS = False
 
 
-MODEL_SIZES = {"Nano (mais rápido)": "n", "Small": "s", "Medium (mais preciso, mais lento)": "m"}
 IMGSZ_OPTIONS = [320, 480, 640, 960]
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")  # cores/cursor que o tqdm do ultralytics manda pro terminal
@@ -83,6 +84,19 @@ class _QueueWriter:
         pass
 
 
+def _batch_progress(trainer, q, state):
+    state["batch"] += 1
+    nb = len(trainer.train_loader)
+    losses = "  ".join(f"{k.split('/')[-1]}={float(v):.3f}" for k, v in (trainer.tloss or {}).items())
+    q.put(("progress", f"Época {trainer.epoch + 1}/{trainer.epochs} · lote {state['batch']}/{nb} · {losses}"))
+
+
+def _epoch_summary(trainer, q):
+    metrics = trainer.metrics or {}
+    parts = [f"{k.split('/')[-1]}={metrics[k]:.3f}" for k in metrics if k.startswith("metrics/")]
+    q.put(("line", f"Época {trainer.epoch + 1}/{trainer.epochs} concluída · " + "  ".join(parts)))
+
+
 class _RedirectOutput:
     """Context manager que redireciona stdout/stderr pra uma Queue -- ver
     _QueueWriter. Usado so durante o treino, num thread separado, pra GUI
@@ -112,7 +126,6 @@ class TrainerApp(tk.Tk):
 
         self.data_yaml = tk.StringVar()
         self.task = tk.StringVar(value="seg")
-        self.model_size = tk.StringVar(value="Nano (mais rápido)")
         self.epochs = tk.IntVar(value=100)
         self.imgsz = tk.IntVar(value=640)
         self.batch = tk.IntVar(value=-1)
@@ -148,9 +161,6 @@ class TrainerApp(tk.Tk):
 
         frm_params = ttk.LabelFrame(self, text="3. Parâmetros de treino")
         frm_params.pack(fill="x", **pad)
-        self._param_row(frm_params, "Tamanho do modelo:",
-                         ttk.Combobox(frm_params, textvariable=self.model_size,
-                                      values=list(MODEL_SIZES.keys()), state="readonly", width=28))
         self._param_row(frm_params, "Épocas:",
                          ttk.Spinbox(frm_params, from_=1, to=1000, textvariable=self.epochs, width=10))
         self._param_row(frm_params, "Tamanho da imagem:",
@@ -225,18 +235,31 @@ class TrainerApp(tk.Tk):
         self._training_thread = threading.Thread(target=self._run_training, daemon=True)
         self._training_thread.start()
 
+    def _resolved_data_yaml(self):
+        """O data.yaml exportado usa "path: ." -- o ultralytics resolveria esse
+        ponto a partir da pasta da ferramenta, nao da do dataset. Grava uma
+        copia na pasta do dataset com o caminho absoluto e treina com ela."""
+        src = Path(self.data_yaml.get()).resolve()
+        cfg = yaml.safe_load(src.read_text(encoding="utf-8"))
+        cfg["path"] = str(src.parent)
+        dst = src.parent / "data_treino.yaml"
+        dst.write_text(yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        return str(dst)
+
     def _run_training(self):
         try:
-            size = MODEL_SIZES[self.model_size.get()]
-            suffix = "-seg" if self.task.get() == "seg" else ""
-            checkpoint = f"yolo11{size}{suffix}.pt"
+            checkpoint = "yolov8n-seg.pt" if self.task.get() == "seg" else "yolov8n.pt"
             use_gpu = HAS_TORCH and torch.cuda.is_available() and not self.force_cpu.get()
             device = 0 if use_gpu else "cpu"
 
             with _RedirectOutput(self._log_queue):
                 model = YOLO(checkpoint)
+                state = {"batch": 0}
+                model.add_callback("on_train_epoch_start", lambda t: state.update(batch=0))
+                model.add_callback("on_train_batch_end", lambda t: _batch_progress(t, self._log_queue, state))
+                model.add_callback("on_fit_epoch_end", lambda t: _epoch_summary(t, self._log_queue))
                 results = model.train(
-                    data=self.data_yaml.get(),
+                    data=self._resolved_data_yaml(),
                     epochs=int(self.epochs.get()),
                     imgsz=int(self.imgsz.get()),
                     batch=int(self.batch.get()),

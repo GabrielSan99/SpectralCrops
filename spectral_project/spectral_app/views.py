@@ -22,6 +22,7 @@ import tempfile
 import zipfile
 import csv
 import io
+from pathlib import Path
 from datetime import datetime
 import base64
 import json
@@ -312,6 +313,15 @@ def _apply_band_exposure(project, nm):
     camera.apply_controls({"auto_exposure": 1, "exposure_time_absolute": exposure})
 
 
+def _camera_settings_full_for_driver(cs):
+    """Envio completo (inicio de stream, reset) SEM exposure_dynamic_framerate:
+    reenviar esse controle com o stream rodando faz a Arducam renegociar e
+    derruba o USB. Ele so vai pro driver quando o usuario muda de fato."""
+    values = _camera_settings_v4l2_dict(cs)
+    values.pop("exposure_dynamic_framerate", None)
+    return values
+
+
 def _apply_camera_settings(project):
     """Envia os controles salvos desse projeto pra camera de verdade. Best
     effort: se a camera nao estiver conectada, so loga -- nunca derruba a
@@ -319,7 +329,7 @@ def _apply_camera_settings(project):
     if not project:
         return True, ""
     cs = _ensure_camera_settings(project)
-    ok, err = camera.apply_controls(_camera_settings_v4l2_dict(cs))
+    ok, err = camera.apply_controls(_camera_settings_full_for_driver(cs))
     if not ok:
         print(f"Falha ao aplicar controles da câmera: {err}")
     return ok, err
@@ -1066,13 +1076,16 @@ def param_save(request):
             intensity = max(0, min(255, int(b.get('intensity') or 0)))
         except (ValueError, TypeError):
             intensity = 0
-        updates = {"intensity": intensity, "updated": timezone.now()}
+        updates = {"intensity": intensity}
         if 'exposure_time_absolute' in b:
             try:
                 updates["exposure_time_absolute"] = max(1, min(5000, int(b.get('exposure_time_absolute') or 157)))
             except (ValueError, TypeError):
                 pass
-        BandParameter.objects.filter(project=project, nm=nm).update(**updates)
+        bp = BandParameter.objects.filter(project=project, nm=nm).first()
+        if bp and any(getattr(bp, k) != v for k, v in updates.items()):
+            updates["updated"] = timezone.now()
+            BandParameter.objects.filter(pk=bp.pk).update(**updates)
 
     return JsonResponse({"ok": True})
 
@@ -1090,21 +1103,47 @@ def param_camera_save(request):
         return JsonResponse({"ok": False, "error": "Selecione um projeto na Home."}, status=400)
     data = json.loads(request.body or "{}")
     cs = _ensure_camera_settings(project)
+    before = _camera_settings_v4l2_dict(cs)
 
+    changed = False
     for field in CAMERA_BOOL_FIELDS:
         if field in data:
-            setattr(cs, field, bool(data[field]))
+            value = bool(data[field])
+            changed = changed or getattr(cs, field) != value
+            setattr(cs, field, value)
     for field in CAMERA_INT_FIELDS:
         if field in data:
             lo, hi = CAMERA_CONTROL_RANGES[field]
             try:
-                setattr(cs, field, _clamp(int(data[field]), lo, hi))
+                value = _clamp(int(data[field]), lo, hi)
             except (ValueError, TypeError):
                 continue
-    cs.save()
+            changed = changed or getattr(cs, field) != value
+            setattr(cs, field, value)
+    if changed:
+        cs.save()
 
-    ok, err = camera.apply_controls(_camera_settings_v4l2_dict(cs))
+    # So manda pro driver o que mudou: reenviar tudo a cada slider faz a
+    # Arducam renegociar controles (ex.: exposure_dynamic_framerate) com o
+    # stream rodando e o USB cai.
+    after = _camera_settings_v4l2_dict(cs)
+    to_apply = {k: v for k, v in after.items() if before.get(k) != v}
+    ok, err = camera.apply_controls(to_apply) if to_apply else (True, "")
     return JsonResponse({"ok": ok, "error": err, "settings": _camera_settings_json(cs)})
+
+
+@login_required
+def param_note_save(request):
+    """Salva a observacao da parametrizacao do projeto ativo (uma por projeto).
+    Nao altera nenhum parametro, entao nao passa pelo bloqueio de projeto travado."""
+    if request.method != 'POST':
+        return JsonResponse({"error": "POST"}, status=405)
+    project = _get_active_project(request)
+    if not project:
+        return JsonResponse({"ok": False, "error": "Selecione um projeto na Home."}, status=400)
+    project.param_note = (json.loads(request.body or "{}").get('text') or "").strip()
+    project.save(update_fields=['param_note'])
+    return JsonResponse({"ok": True, "text": project.param_note})
 
 
 @login_required
@@ -1117,7 +1156,7 @@ def param_camera_reset(request):
     if not project:
         return JsonResponse({"ok": False, "error": "Selecione um projeto na Home."}, status=400)
     cs, _created = CameraSettings.objects.update_or_create(project=project, defaults=CAMERA_DEFAULTS)
-    ok, err = camera.apply_controls(_camera_settings_v4l2_dict(cs))
+    ok, err = camera.apply_controls(_camera_settings_full_for_driver(cs))
     return JsonResponse({"ok": ok, "error": err, "settings": _camera_settings_json(cs)})
 
 
@@ -2598,6 +2637,32 @@ def annotate_view(request, acq_id):
     })
 
 
+def _closed_polygon(pts):
+    """Vertices de um contorno fechado valido (>=3 pontos, area > 0), sem o
+    ponto final repetindo o inicial -- ou None se nao der pra formar uma
+    superficie fechada de verdade. YOLO-seg fecha o contorno sozinho, entao
+    um poligono degenerado vira linha quebrada no .txt do dataset."""
+    try:
+        pts = [(float(x), float(y)) for x, y in pts]
+    except (TypeError, ValueError):
+        return None
+    if len(pts) > 1 and pts[0] == pts[-1]:
+        pts = pts[:-1]
+    if len(pts) < 3:
+        return None
+    area2 = sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1]))
+    return pts if area2 != 0 else None
+
+
+def _keep_closed(shapes, labels):
+    """Mantem so os contornos fechados validos (e seus labels, alinhados), e
+    devolve quantos foram descartados."""
+    labels = labels or [""] * len(shapes)
+    kept = [(_closed_polygon(s), l) for s, l in zip(shapes, labels)]
+    kept = [(s, l) for s, l in kept if s]
+    return [s for s, _ in kept], [l for _, l in kept], len(shapes) - len(kept)
+
+
 @login_required
 def annotation_save(request, acq_id):
     if request.method != 'POST':
@@ -2614,6 +2679,8 @@ def annotation_save(request, acq_id):
     poly_labels = data.get('poly_labels', [""] * len(polygons))
     points = data.get('points', [])
     point_labels = data.get('point_labels', [""] * len(points))
+    ellipses, ellipse_labels, n_bad_ell = _keep_closed(ellipses, ellipse_labels)
+    polygons, poly_labels, n_bad_poly = _keep_closed(polygons, poly_labels)
     ann, _ = Annotation.objects.get_or_create(acquisition=acq)
     ann.boxes, ann.labels = boxes, labels
     ann.ellipses, ann.ellipse_labels = ellipses, ellipse_labels
@@ -2623,7 +2690,8 @@ def annotation_save(request, acq_id):
         ann.image_label = (data.get('image_label') or "").strip()
     ann.save()
     return JsonResponse({"ok": True, "saved": len(boxes),
-                         "n_ellipses": len(ellipses), "n_polygons": len(polygons), "n_points": len(points)})
+                         "n_ellipses": len(ellipses), "n_polygons": len(polygons), "n_points": len(points),
+                         "descartados": n_bad_ell + n_bad_poly})
 
 
 # ── Exportacao ────────────────────────────────────────────────────────────────
@@ -2886,9 +2954,9 @@ def auto_segment_yolo(request, acq_id):
         for _, _, _, _, c in sorted_detections:
             epsilon = 0.008 * cv2.arcLength(c, True)
             approx = cv2.approxPolyDP(c, epsilon, True)
-            pts = approx.reshape(-1, 2).tolist()
-            if len(pts) >= 4:
-                polygons.append(pts)
+            closed = _closed_polygon(approx.reshape(-1, 2).tolist())
+            if closed:
+                polygons.append(closed)
         return JsonResponse({"polygons": polygons, "count": len(polygons)})
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
@@ -3212,6 +3280,27 @@ def ml_classifier_train(request):
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
 
 
+YOLO_KIT_DIR = Path(__file__).resolve().parent / "yolo_kit"
+YOLO_KIT_FILES = ["LEIA-ME.txt", "requirements.txt", "yolo_trainer_gui.py", "iniciar_treino.bat", "iniciar_treino.sh"]
+
+
+@login_required
+def ml_training_kit_download(request):
+    """Ferramenta de treino (GUI + atalhos + LEIA-ME), baixada uma vez so --
+    independe do dataset. Quem treina extrai isso uma vez e aponta o
+    data.yaml de cada dataset exportado pela GUI."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name in YOLO_KIT_FILES:
+            info = zipfile.ZipInfo(f"spectralcrops_treino/{name}")
+            info.external_attr = (0o755 if name.endswith(".sh") else 0o644) << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            with open(YOLO_KIT_DIR / name, "rb") as fh:
+                zf.writestr(info, fh.read())
+    buf.seek(0)
+    return FileResponse(buf, as_attachment=True, filename="spectralcrops_treino.zip")
+
+
 @login_required
 @require_project
 def ml_dataset_export(request):
@@ -3219,7 +3308,7 @@ def ml_dataset_export(request):
     projeto ativo -- imagens + labels em images/<train|val>/ e
     labels/<train|val>/ + data.yaml, pronto pra treinar fora do Pi (sem GPU
     aqui, o treino de verdade acontece em outra maquina/Colab, ver
-    tools/yolo_trainer_gui.py) e depois subir o .pt resultante em Machine
+    spectral_app/yolo_kit/yolo_trainer_gui.py) e depois subir o .pt resultante em Machine
     Learning. Chamado tanto pelo botao 'Exportar' de Annotations (`ids` = so
     as amostras selecionadas ali) quanto pela pagina Machine Learning
     (sem `ids` = todas as amostras anotadas do projeto)."""
@@ -3249,6 +3338,7 @@ def ml_dataset_export(request):
         if task == 'seg':
             shapes = list(a.ellipses) + list(a.polygons)
             labels = list(a.ellipse_labels or [""] * len(a.ellipses)) + list(a.poly_labels or [""] * len(a.polygons))
+            shapes, labels, _ = _keep_closed(shapes, labels)
         else:
             shapes, labels = a.boxes, a.labels
         if not shapes:
@@ -3259,7 +3349,8 @@ def ml_dataset_export(request):
             continue
         img_w, img_h = dims
         labels = labels or [""] * len(shapes)
-        all_labels.update(l for l in labels if l)
+        if task == 'det':
+            all_labels.update(l for l in labels if l)
         items.append((a.acquisition, img_path, shapes, labels, img_w, img_h))
 
     if not items:
@@ -3267,7 +3358,12 @@ def ml_dataset_export(request):
         return JsonResponse({"ok": False,
             "error": f"Nenhuma anotação com {shape_kind} encontrada nesse projeto."}, status=400)
 
-    label_map = {lbl: i for i, lbl in enumerate(sorted(all_labels))} if all_labels else {"": 0}
+    if task == 'seg':
+        # Segmentacao e binaria: so separa amostra de fundo, o label de cada
+        # forma (condicao/tipo) nao entra no treino.
+        label_map = {"amostra": 0}
+    else:
+        label_map = {lbl: i for i, lbl in enumerate(sorted(all_labels))} if all_labels else {"": 0}
 
     rng = np.random.RandomState(42)
     order = list(range(len(items)))
@@ -3284,7 +3380,7 @@ def ml_dataset_export(request):
 
             lines = []
             for shape, lbl in zip(shapes, labels):
-                cls = label_map.get(lbl, 0)
+                cls = 0 if task == 'seg' else label_map.get(lbl, 0)
                 if task == 'seg':
                     pts_norm = " ".join(f"{x / img_w:.6f} {y / img_h:.6f}" for x, y in shape)
                     lines.append(f"{cls} {pts_norm}")

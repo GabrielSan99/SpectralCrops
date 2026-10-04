@@ -580,6 +580,12 @@
         </fieldset>
       </div><!-- /row3 -->
 
+      <div class="card" id="notes-card">
+        <h2>Observação da parametrização</h2>
+        <p class="hint">Uma observação por projeto, pra registrar o que você ajustou e por quê. Não altera nenhum parâmetro.</p>
+        <textarea id="note-text" rows="4" placeholder="Ex.: LED 660 com exposição alta por causa da semente escura; filtro 3 testado com pouca luz..." style="width:100%;margin:0.5rem 0;">{{ project.param_note }}</textarea>
+        <button class="btn btn-primary" onclick="saveNote()" {% if not project %}disabled{% endif %}>Salvar observação</button>
+      </div>
     </div><!-- /page-body -->
   </main>
 
@@ -598,6 +604,7 @@ const URLS = {
   reflCapture: "{% url 'param_reflectance_capture' %}",
   reflCompute: "{% url 'param_reflectance_compute' %}",
   reflZero: "{% url 'param_reflectance_zero' %}",
+  noteSave: "{% url 'param_note_save' %}",
   save:     "{% url 'param_save' %}",
   streamStop: "{% url 'video_feed_stop' %}",
   camSave:  "{% url 'param_camera_save' %}",
@@ -607,6 +614,14 @@ function api(url, data) {
   return fetch(url, { method: 'POST', headers: { 'X-CSRFToken': CSRF },
     body: new URLSearchParams(data || {}) }).then(r => r.json());
 }
+function saveNote() {
+  const text = document.getElementById('note-text').value.trim();
+  apiJSON(URLS.noteSave, { text }).then(d => {
+    if (!d.ok) { toast(d.error || 'Erro ao salvar observação'); return; }
+    toast('Observação salva ✓');
+  }).catch(() => toast('Erro ao salvar observação'));
+}
+
 function apiJSON(url, obj) {
   return fetch(url, { method: 'POST',
     headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },

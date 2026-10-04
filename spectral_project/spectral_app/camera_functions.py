@@ -176,6 +176,11 @@ class ArducamCamera:
             return None
         ret, frame = self.cap.read()
         if not ret:
+            # USB resetado deixa o VideoCapture "aberto" mas morto: solta o
+            # device pra proxima chamada reabrir (com um respiro, pra nao
+            # martelar o barramento enquanto ele re-enumera).
+            self.release()
+            time.sleep(0.5)
             return None
         return frame
 

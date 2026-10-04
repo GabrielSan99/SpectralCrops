@@ -49,6 +49,7 @@ urlpatterns = [
     path('machine-learning/classifier/estimate/', views.ml_classifier_estimate, name='ml_classifier_estimate'),
     path('machine-learning/classifier/train/', views.ml_classifier_train, name='ml_classifier_train'),
     path('machine-learning/dataset/export/', views.ml_dataset_export, name='ml_dataset_export'),
+    path('machine-learning/treino/download/', views.ml_training_kit_download, name='ml_training_kit_download'),
 
     # Annotations (grade de aquisicoes do projeto ativo + editor de anotacao)
     path('annotations/', views.annotations_list, name='annotations_list'),
@@ -78,6 +79,7 @@ urlpatterns = [
     path('parameterization/bands/auto_expose/', views.param_band_auto_expose, name='param_band_auto_expose'),
     path('parameterization/save/', views.param_save, name='param_save'),
     path('parameterization/camera/save/', views.param_camera_save, name='param_camera_save'),
+    path('parameterization/notes/save/', views.param_note_save, name='param_note_save'),
     path('parameterization/camera/reset/', views.param_camera_reset, name='param_camera_reset'),
 
     # Imagem de banda unica com o colormap Spectral aplicado (so exibicao,

@@ -107,7 +107,7 @@ Ordem dentro de cada seção é sugestão de prioridade, não obrigação.
       nenhuma, inútil pra treinar direto); a página Machine Learning só
       mostra quantas amostras estão anotadas e linka pra lá, pra não ter dois
       fluxos fazendo a mesma coisa.
-- [x] **`tools/yolo_trainer_gui.py`** (26/09/2026) — script standalone (só
+- [x] **`yolo_trainer_gui.py`** (movido pra `spectral_app/yolo_kit/`, agora vai dentro do .zip) (26/09/2026) — script standalone (só
       stdlib + `ultralytics`, não faz parte do Django nem do Pi) com uma GUI
       Tkinter simples: escolhe o `data.yaml` extraído do `.zip`, escolhe a
       tarefa e os hiperparâmetros (época, tamanho de imagem, batch, tamanho
@@ -115,3 +115,24 @@ Ordem dentro de cada seção é sugestão de prioridade, não obrigação.
       achar), treina em background e mostra o progresso ao vivo (inclusive
       as barras do tqdm, sem os códigos de cor ANSI sujando o log). No final
       abre a pasta do `best.pt` pra subir de volta em Machine Learning.
+
+## F. Parametrização — rotina de captura (drag-and-drop)
+
+- [ ] **Montar rotina de captura combinando LEDs e filtros** — seção nova na
+      página Parametrization, com etapas montadas por drag-and-drop. Só libera
+      a montagem depois que os filtros estiverem parametrizados (as 6 posições
+      com passos definidos).
+      - **Reflectance analysis** é uma etapa opcional, sempre na posição 1 da
+        rotina, sem filtro: quando selecionada, percorre todos os comprimentos
+        de onda da rotina. Ao selecioná-la, desabilita a escolha de filtro da
+        linha correspondente.
+      - Depois, duas colunas por etapa: **LED** (obrigatória, comprimento de
+        onda) e **Filtro** (opcional, posição 1-6). Ao escolher a posição do
+        filtro, já mostra o nome dele (vem de `FilterPosition.name`).
+      - Botão **+ Adicionar etapa** pra ir acrescentando linhas.
+      - Exemplo: etapa 1 = LED 580 nm + filtro na posição 3 ("Passa Alta
+        670nm"); etapa 2 = só LED, sem filtro; etc.
+      - Reordenável por arrastar e soltar. Persistência por projeto (mesmo
+        escopo de `FilterPosition`/`BandParameter`).
+      - Ainda não definido: se a rotina alimenta a captura (Data Acquisition)
+        automaticamente ou só fica salva como referência.

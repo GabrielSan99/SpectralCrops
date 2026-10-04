@@ -198,8 +198,14 @@
     </div>
 
     <div class="card">
-      <h3>Empacotar dataset (YOLO)</h3>
-      <p class="hint">O Pi não tem GPU pra treinar segmentação/detecção — o pacote pronto pra treinar fora (imagens + labels + <code>data.yaml</code>, num .zip) sai de <strong>Annotations</strong>: selecione as amostras anotadas, clique em "⬇ Exportar" e escolha Segmentação ou Detecção. Depois de treinar (ver o script em <code>tools/yolo_trainer_gui.py</code>), suba o <code>.pt</code> resultante ali em cima.</p>
+      <h3>Ferramenta de treino (YOLO)</h3>
+      <p class="hint">Baixe uma vez e guarde no seu computador. Tem o treinador com interface, os atalhos de instalação (Windows e Linux) e um LEIA-ME com o passo a passo. Não precisa baixar de novo a cada dataset: você só aponta o <code>data.yaml</code> de cada pacote que exportar.</p>
+      <a class="btn" href="{% url 'ml_training_kit_download' %}" style="margin-top:0.6rem">⬇ Baixar ferramenta de treino</a>
+    </div>
+
+    <div class="card">
+      <h3>Dataset de segmentação / detecção</h3>
+      <p class="hint">Pacote com as imagens, anotações e <code>data.yaml</code> das amostras selecionadas. Sai de <strong>Annotations</strong>: selecione as amostras, clique em "⬇ Exportar" e escolha Segmentação ou Detecção. Depois de treinar com a ferramenta acima, suba o <code>best.pt</code> resultante aqui em cima.</p>
       <div class="dataset-summary">
         <span class="class-pill">SEG: {{ seg_annotated_count }} amostra(s) com elipse/polígono</span>
         <span class="class-pill">DET: {{ det_annotated_count }} amostra(s) com caixa</span>

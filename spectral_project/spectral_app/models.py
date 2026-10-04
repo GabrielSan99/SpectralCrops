@@ -126,6 +126,7 @@ class Project(models.Model):
     #  "feature_importance": [{"band":, "importance":}, ...] ou None,
     #  "n_samples":, "trained_at": iso, "train_seconds":}
     model_cls_info = models.JSONField(default=dict, blank=True)
+    param_note = models.TextField(blank=True, default="")  # observacao livre da parametrizacao (uma por projeto)
     created = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -174,11 +174,11 @@
     <h3>Exportar anotações</h3>
     <div class="modal-summary" id="modal-summary"></div>
     <div class="modal-options">
-      <button class="modal-opt" id="btn-seg" onclick="doExport('seg')" title="Baixa um .zip com imagens + labels + data.yaml, pronto pra treinar o YOLO fora do Pi (ver tools/yolo_trainer_gui.py)">
+      <button class="modal-opt" id="btn-seg" onclick="doExport('seg')" title="Baixa um .zip com imagens + labels + data.yaml, pra treinar o YOLO fora do Pi (ferramenta de treino em Machine Learning)">
         <span class="opt-icon">⬡</span><span class="opt-label">Segmentação</span>
         <span class="opt-sub" id="modal-poly-count"></span>
       </button>
-      <button class="modal-opt" id="btn-det" onclick="doExport('det')" title="Baixa um .zip com imagens + labels + data.yaml, pronto pra treinar o YOLO fora do Pi (ver tools/yolo_trainer_gui.py)">
+      <button class="modal-opt" id="btn-det" onclick="doExport('det')" title="Baixa um .zip com imagens + labels + data.yaml, pra treinar o YOLO fora do Pi (ferramenta de treino em Machine Learning)">
         <span class="opt-icon">▢</span><span class="opt-label">Detecção</span>
         <span class="opt-sub" id="modal-box-count"></span>
       </button>
@@ -461,7 +461,7 @@ async function doExport(type) {
   }
 
   // seg/det: baixa o .zip completo (imagens + labels + data.yaml), pronto
-  // pra treinar o YOLO -- ver views.ml_dataset_export e tools/yolo_trainer_gui.py.
+  // pra treinar o YOLO -- ver views.ml_dataset_export e a ferramenta de treino em Machine Learning.
   const btn = document.getElementById(type === 'seg' ? 'btn-seg' : 'btn-det');
   const origLabel = btn.querySelector('.opt-label').textContent;
   btn.disabled = true; btn.querySelector('.opt-label').textContent = 'Gerando .zip…';
