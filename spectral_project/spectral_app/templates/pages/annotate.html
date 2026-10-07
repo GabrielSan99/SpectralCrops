@@ -214,8 +214,10 @@
     #canvas { display: block; max-width: 92%; height: auto; image-rendering: pixelated; }
     body.mode-box #canvas { cursor: crosshair; }
     body.mode-ellipse #canvas { cursor: crosshair; }
-    body.mode-polygon #canvas { cursor: cell; }
+    body.mode-polygon #canvas { cursor: crosshair; }
     body.mode-point #canvas { cursor: copy; }
+    .zoom-ctl { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+    .zoom-ctl .mode-btn { min-width: 36px; }
   </style>
 </head>
 <body class="mode-box">
@@ -253,6 +255,11 @@
 
   <span class="hint" id="tool-hint">Arraste para criar box | Dir para remover</span>
   <span class="saved-msg" id="saved-msg">✓ Salvo!</span>
+  <div class="zoom-ctl">
+    <button class="mode-btn" onclick="zoomOut()" data-tip="Diminuir zoom  (Ctrl + roda)">−</button>
+    <button class="mode-btn" id="zoom-label" onclick="zoomFit()" data-tip="Ajustar à tela">Ajustar</button>
+    <button class="mode-btn" onclick="zoomIn()" data-tip="Aumentar zoom  (Ctrl + roda)">+</button>
+  </div>
 
   <div class="tool-group">
     <span class="tool-group-label">Automático</span>
@@ -417,6 +424,39 @@
   const img    = new Image();
 
   img.onload = () => { canvas.width = img.naturalWidth; canvas.height = img.naturalHeight; redraw(); };
+
+  // ── Zoom ──────────────────────────────────────────────────────────────────
+  // Só muda o tamanho exibido do canvas: canvasCoords() já converte o clique
+  // pela proporção entre tamanho exibido e real, então desenho e seleção
+  // continuam no pixel certo. zoomLevel === null = ajustar à tela.
+  const ZOOM_MIN = 0.25, ZOOM_MAX = 8, ZOOM_STEP = 1.25;
+  let zoomLevel = null;
+  const canvasWrap = document.querySelector('.canvas-wrap');
+
+  function applyZoom(level) {
+    const fx = (canvasWrap.scrollLeft + canvasWrap.clientWidth / 2) / Math.max(1, canvasWrap.scrollWidth);
+    const fy = (canvasWrap.scrollTop + canvasWrap.clientHeight / 2) / Math.max(1, canvasWrap.scrollHeight);
+    zoomLevel = level;
+    if (level === null) { canvas.style.width = ''; canvas.style.maxWidth = ''; }
+    else { canvas.style.maxWidth = 'none'; canvas.style.width = (canvas.width * level) + 'px'; }
+    document.getElementById('zoom-label').textContent = level === null ? 'Ajustar' : Math.round(level * 100) + '%';
+    requestAnimationFrame(() => {
+      canvasWrap.scrollLeft = fx * canvasWrap.scrollWidth - canvasWrap.clientWidth / 2;
+      canvasWrap.scrollTop  = fy * canvasWrap.scrollHeight - canvasWrap.clientHeight / 2;
+    });
+  }
+  function zoomStep(factor) {
+    const base = zoomLevel ?? (canvas.clientWidth / canvas.width);
+    applyZoom(Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, base * factor)));
+  }
+  function zoomIn()  { zoomStep(ZOOM_STEP); }
+  function zoomOut() { zoomStep(1 / ZOOM_STEP); }
+  function zoomFit() { applyZoom(null); }
+  canvasWrap.addEventListener('wheel', e => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    if (e.deltaY < 0) zoomIn(); else zoomOut();
+  }, { passive: false });
   img.src = REF_IMAGE_URL;
 
   // ── Mode switch ───────────────────────────────────────────────────────────
@@ -642,10 +682,10 @@
         const vH = hitTestVertex(x, y, sel, arr);
         const eH = vH < 0 ? hitTestEdge(x, y, sel, arr) : -1;
         if (vH !== hoverVertIdx || eH !== hoverEdgeIdx) { hoverVertIdx = vH; hoverEdgeIdx = eH; redraw(); }
-        canvas.style.cursor = vH >= 0 ? 'move' : (eH >= 0 ? 'copy' : (hitTestPoly(x,y,arr)>=0 ? 'grab' : 'cell'));
+        canvas.style.cursor = vH >= 0 ? 'move' : (eH >= 0 ? 'copy' : (hitTestPoly(x,y,arr)>=0 ? 'grab' : 'crosshair'));
       } else {
         hoverVertIdx = -1; hoverEdgeIdx = -1;
-        canvas.style.cursor = hitTestPoly(x,y,arr)>=0 ? 'grab' : 'cell';
+        canvas.style.cursor = hitTestPoly(x,y,arr)>=0 ? 'grab' : 'crosshair';
       }
     }
   });
@@ -656,7 +696,7 @@
     if (editingVertIdx >= 0) { editingVertIdx = -1; canvas.style.cursor = 'move'; redraw(); return; }
     if (movingPolyIdx >= 0) {
       movingPolyIdx = -1;
-      canvas.style.cursor = (mode==='polygon'||mode==='ellipse') && hitTestPoly(x,y,curArr())>=0 ? 'grab' : 'cell';
+      canvas.style.cursor = (mode==='polygon'||mode==='ellipse') && hitTestPoly(x,y,curArr())>=0 ? 'grab' : 'crosshair';
       redraw(); return;
     }
     if (!drawing) return;

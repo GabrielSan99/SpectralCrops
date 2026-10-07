@@ -54,6 +54,8 @@ urlpatterns = [
     # Annotations (grade de aquisicoes do projeto ativo + editor de anotacao)
     path('annotations/', views.annotations_list, name='annotations_list'),
     path('annotations/export/classification/', views.export_classification, name='export_classification'),
+    path('exports/<str:job_id>/status/', views.export_job_status, name='export_job_status'),
+    path('exports/<str:job_id>/download/', views.export_job_download, name='export_job_download'),
     path('annotations/<int:acq_id>/', views.annotate_view, name='annotate_view'),
     path('annotations/<int:acq_id>/save/', views.annotation_save, name='annotation_save'),
     path('annotations/<int:acq_id>/rois/compute/', views.roi_measurement_compute, name='roi_measurement_compute'),

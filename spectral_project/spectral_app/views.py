@@ -28,6 +28,7 @@ import base64
 import json
 import re
 import threading
+import uuid
 import time
 import cv2
 import numpy as np
@@ -1952,25 +1953,30 @@ def data_acquisition_download_zip(request):
     if not acquisitions:
         return JsonResponse({"ok": False, "error": "Nenhuma aquisição encontrada."}, status=404)
 
-    tmp = tempfile.NamedTemporaryFile(suffix=".zip")
-    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
-        for acq in acquisitions:
-            if not acq.folder:
-                continue
-            folder_path = os.path.join(settings.MEDIA_ROOT, "acquisitions", acq.folder)
-            if not os.path.isdir(folder_path):
-                continue
-            root_name = acq.folder   # ja e unico/datado (ver _dated_name), sem colisao entre amostras
-            for dirpath, _dirnames, filenames in os.walk(folder_path):
-                for fname in filenames:
-                    fpath = os.path.join(dirpath, fname)
-                    arcname = os.path.join(root_name, os.path.relpath(fpath, folder_path))
+    jobs_files = []  # (caminho no disco, nome dentro do zip)
+    for acq in acquisitions:
+        if not acq.folder:
+            continue
+        folder_path = os.path.join(settings.MEDIA_ROOT, "acquisitions", acq.folder)
+        if not os.path.isdir(folder_path):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(folder_path):
+            for fname in filenames:
+                fpath = os.path.join(dirpath, fname)
+                arcname = os.path.join(acq.folder, os.path.relpath(fpath, folder_path))  # acq.folder ja e unico/datado
+                jobs_files.append((fpath, arcname))
+
+    def work(report):
+        def write(fh):
+            with zipfile.ZipFile(fh, "w", zipfile.ZIP_DEFLATED) as zf:
+                for i, (fpath, arcname) in enumerate(jobs_files):
                     zf.write(fpath, arcname)
-    tmp.seek(0)
+                    report((i + 1) / len(jobs_files))
+        return _write_temp_file(".zip", write)
 
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    response = FileResponse(tmp, as_attachment=True, filename=f"aquisicoes_{stamp}.zip")
-    return response
+    job_id = _export_job_start(request.user, f"aquisicoes_{stamp}.zip", work)
+    return JsonResponse({"job": job_id})
 
 
 # ─────────────────────────────────────────────────────────────
@@ -2552,6 +2558,69 @@ def roi_measurements_view(request):
     })
 
 
+_export_jobs = {}
+_export_jobs_lock = threading.Lock()
+
+
+def _export_job_start(user, filename, work):
+    """Roda `work(report)` numa thread e devolve o id do job. `report(frac)`
+    atualiza o progresso (0..1); `work` devolve o caminho do arquivo pronto.
+    `work` nao pode tocar em request -- tudo que precisa entra por closure."""
+    job_id = uuid.uuid4().hex
+    job = {"owner": user.id, "progress": 0.0, "done": False, "error": None,
+           "path": None, "filename": filename}
+    with _export_jobs_lock:
+        _export_jobs[job_id] = job
+
+    def report(frac):
+        job["progress"] = max(0.0, min(1.0, frac))
+
+    def run():
+        try:
+            job["path"] = work(report)
+            job["progress"] = 1.0
+        except Exception as e:
+            job["error"] = str(e)
+        finally:
+            job["done"] = True
+
+    threading.Thread(target=run, daemon=True).start()
+    return job_id
+
+
+def _export_job_for(request, job_id):
+    with _export_jobs_lock:
+        job = _export_jobs.get(job_id)
+    if not job or job["owner"] != request.user.id:
+        raise Http404("Exportação não encontrada")
+    return job
+
+
+def _write_temp_file(suffix, write):
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    with os.fdopen(fd, "wb") as fh:
+        write(fh)
+    return path
+
+
+@login_required
+def export_job_status(request, job_id):
+    job = _export_job_for(request, job_id)
+    return JsonResponse({"progress": job["progress"], "done": job["done"], "error": job["error"]})
+
+
+@login_required
+def export_job_download(request, job_id):
+    job = _export_job_for(request, job_id)
+    if not job["done"] or job["error"] or not job["path"]:
+        raise Http404("Exportação ainda não está pronta")
+    with _export_jobs_lock:
+        _export_jobs.pop(job_id, None)
+    fh = open(job["path"], "rb")
+    os.unlink(job["path"])  # Linux: o arquivo some do disco, mas o fd aberto continua valendo
+    return FileResponse(fh, as_attachment=True, filename=job["filename"])
+
+
 @login_required
 def export_roi_measurements(request):
     """Exporta as medicoes por ROI (das aquisicoes selecionadas) em CSV --
@@ -2572,18 +2641,22 @@ def export_roi_measurements(request):
     writer = csv.writer(buf)
     writer.writerow(["Imagem", "Método", "ROI", "Label", "Área", "Largura (bbox)", "Altura (bbox)", "Tipo"]
                     + [f"{nm}nm" for nm in band_list])
-    n_rows = 0
     for r in rois:
         base = [r.acquisition.name or f"acq_{r.acquisition_id}", r.get_method_display(), r.index, r.label,
                 _fmt_area(r.area_px, r.area_mm2), _fmt_len(r.bbox_width_px, r.bbox_width_mm),
                 _fmt_len(r.bbox_height_px, r.bbox_height_mm)]
         writer.writerow(base + ["bruto_0-255"] + [r.means.get(nm, "") for nm in band_list])
-        n_rows += 1
         if r.reflectance:
             writer.writerow(base + ["reflectância_%"] + [r.reflectance.get(nm, "") for nm in band_list])
-            n_rows += 1
+    text = buf.getvalue()
 
-    return JsonResponse({"csv": buf.getvalue(), "count": n_rows})
+    def work(report):
+        report(0.5)
+        path = _write_temp_file(".csv", lambda fh: fh.write(text.encode("utf-8-sig")))
+        report(1.0)
+        return path
+    job_id = _export_job_start(request.user, "roi_espectros.csv", work)
+    return JsonResponse({"job": job_id})
 
 
 @login_required
@@ -2719,7 +2792,15 @@ def export_classification(request):
     output = {"label_map": label_map,
              "acquisitions": {s["name"]: s["id"] for s in samples},
              "annotations": {s["name"]: s["class_id"] for s in samples}}
-    return JsonResponse(output)
+    text = json.dumps(output, indent=2, ensure_ascii=False)
+
+    def work(report):
+        report(0.5)
+        path = _write_temp_file(".json", lambda fh: fh.write(text.encode("utf-8")))
+        report(1.0)
+        return path
+    job_id = _export_job_start(request.user, "classification_annotations.json", work)
+    return JsonResponse({"job": job_id})
 
 
 # ── Segmentação/deteção/classificação automática ──────────────────────────────
@@ -3371,33 +3452,36 @@ def ml_dataset_export(request):
     n_val = max(1, round(len(order) * val_split)) if len(order) > 1 else 0
     val_idx = set(order[:n_val])
 
-    tmp = tempfile.NamedTemporaryFile(suffix=".zip")
-    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
-        for i, (acq, img_path, shapes, labels, img_w, img_h) in enumerate(items):
-            split = "val" if i in val_idx else "train"
-            stem = re.sub(r'[^A-Za-z0-9_.-]+', '_', acq.name or f"acq_{acq.id}")
-            ext = os.path.splitext(img_path)[1] or ".png"
+    names_yaml = "\n".join(f"  {i}: {name or 'sem_label'}"
+                            for name, i in sorted(label_map.items(), key=lambda kv: kv[1]))
+    data_yaml = f"path: .\ntrain: images/train\nval: images/val\nnames:\n{names_yaml}\n"
 
-            lines = []
-            for shape, lbl in zip(shapes, labels):
-                cls = 0 if task == 'seg' else label_map.get(lbl, 0)
-                if task == 'seg':
-                    pts_norm = " ".join(f"{x / img_w:.6f} {y / img_h:.6f}" for x, y in shape)
-                    lines.append(f"{cls} {pts_norm}")
-                else:
-                    x1, y1, x2, y2 = shape
-                    cx, cy = ((x1 + x2) / 2) / img_w, ((y1 + y2) / 2) / img_h
-                    bw, bh = (x2 - x1) / img_w, (y2 - y1) / img_h
-                    lines.append(f"{cls} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
+    def work(report):
+        def write(fh):
+            with zipfile.ZipFile(fh, "w", zipfile.ZIP_DEFLATED) as zf:
+                for i, (acq, img_path, shapes, labels, img_w, img_h) in enumerate(items):
+                    split = "val" if i in val_idx else "train"
+                    stem = re.sub(r'[^A-Za-z0-9_.-]+', '_', acq.name or f"acq_{acq.id}")
+                    ext = os.path.splitext(img_path)[1] or ".png"
 
-            zf.write(img_path, f"images/{split}/{stem}{ext}")
-            zf.writestr(f"labels/{split}/{stem}.txt", "\n".join(lines))
+                    lines = []
+                    for shape, lbl in zip(shapes, labels):
+                        cls = 0 if task == 'seg' else label_map.get(lbl, 0)
+                        if task == 'seg':
+                            pts_norm = " ".join(f"{x / img_w:.6f} {y / img_h:.6f}" for x, y in shape)
+                            lines.append(f"{cls} {pts_norm}")
+                        else:
+                            x1, y1, x2, y2 = shape
+                            cx, cy = ((x1 + x2) / 2) / img_w, ((y1 + y2) / 2) / img_h
+                            bw, bh = (x2 - x1) / img_w, (y2 - y1) / img_h
+                            lines.append(f"{cls} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
 
-        names_yaml = "\n".join(f"  {i}: {name or 'sem_label'}"
-                                for name, i in sorted(label_map.items(), key=lambda kv: kv[1]))
-        data_yaml = f"path: .\ntrain: images/train\nval: images/val\nnames:\n{names_yaml}\n"
-        zf.writestr("data.yaml", data_yaml)
-    tmp.seek(0)
+                    zf.write(img_path, f"images/{split}/{stem}{ext}")
+                    zf.writestr(f"labels/{split}/{stem}.txt", "\n".join(lines))
+                    report(0.95 * (i + 1) / len(items))
+                zf.writestr("data.yaml", data_yaml)
+        return _write_temp_file(".zip", write)
 
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    return FileResponse(tmp, as_attachment=True, filename=f"dataset_{task}_{stamp}.zip")
+    job_id = _export_job_start(request.user, f"dataset_{task}_{stamp}.zip", work)
+    return JsonResponse({"job": job_id})

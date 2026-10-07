@@ -136,6 +136,15 @@
     }
 
     /* ── Modal ── */
+    .export-progress { position: fixed; inset: 0; background: rgba(15,17,23,0.55); z-index: 200;
+      display: flex; align-items: center; justify-content: center; }
+    .export-progress[hidden] { display: none; }
+    .export-progress-box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+      padding: 1.4rem 1.6rem; width: min(360px, 90vw); }
+    .export-progress-title { font-weight: 700; margin-bottom: 0.9rem; }
+    .export-progress-track { height: 10px; background: var(--panel2); border-radius: 999px; overflow: hidden; }
+    .export-progress-fill { height: 100%; width: 0%; background: var(--blue); transition: width .25s; }
+    .export-progress-pct { font-size: 0.8rem; color: var(--muted2); margin-top: 0.5rem; text-align: right; }
     .modal-overlay {
       position: fixed; inset: 0; background: rgba(16,24,40,.45);
       display: none; align-items: center; justify-content: center; z-index: 1000;
@@ -284,6 +293,14 @@
 <div id="no-results">Nenhuma amostra encontrada.</div>
 {% endif %}
 
+<div id="export-progress" class="export-progress" hidden>
+  <div class="export-progress-box">
+    <div class="export-progress-title" id="export-progress-title">Exportando…</div>
+    <div class="export-progress-track"><div class="export-progress-fill" id="export-progress-fill"></div></div>
+    <div class="export-progress-pct" id="export-progress-pct">0%</div>
+  </div>
+</div>
+
 <script>
 const CSRF = '{{ csrf_token }}';
 const URLS = {
@@ -291,10 +308,44 @@ const URLS = {
   exportCls:    "{% url 'export_classification' %}",
   exportRois:   "{% url 'export_roi_measurements' %}",
   downloadZip:  "{% url 'data_acquisition_download_zip' %}",
+  exportStatus: "{% url 'export_job_status' 'JOBID' %}",
+  exportDownload: "{% url 'export_job_download' 'JOBID' %}",
 };
 const MAX_ZIP_DOWNLOAD = 30;   // mesmo teto do backend (MAX_ZIP_DOWNLOAD_ACQUISITIONS em views.py)
 function labelUrl(id) { return `/annotations/${id}/label/`; }
 function deleteUrl(id) { return `/data_acquisition/${id}/delete/`; }
+function setExportProgress(frac, title) {
+  const pct = Math.round(Math.max(0, Math.min(1, frac)) * 100);
+  document.getElementById('export-progress-title').textContent = title;
+  document.getElementById('export-progress-fill').style.width = pct + '%';
+  document.getElementById('export-progress-pct').textContent = pct + '%';
+}
+
+async function runExportJob(startUrl, body, title) {
+  const overlay = document.getElementById('export-progress');
+  overlay.hidden = false;
+  setExportProgress(0, title);
+  try {
+    const r = await fetch(startUrl, { method: 'POST',
+      headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.job) throw new Error(d.error || 'Falha ao iniciar a exportação.');
+    for (;;) {
+      await new Promise(res => setTimeout(res, 300));
+      const st = await fetch(URLS.exportStatus.replace('JOBID', d.job)).then(x => x.json());
+      if (st.error) throw new Error(st.error);
+      setExportProgress(st.progress, title);
+      if (st.done) break;
+    }
+    setExportProgress(1, title);
+    window.location.href = URLS.exportDownload.replace('JOBID', d.job);
+  } catch (e) {
+    alert(e.message || 'Erro na exportação.');
+  } finally {
+    overlay.hidden = true;
+  }
+}
+
 function apiJSON(url, obj) {
   return fetch(url, { method: 'POST', headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
     body: JSON.stringify(obj) }).then(r => r.json());
@@ -310,25 +361,9 @@ async function downloadSelected(btn) {
   }
   const ids = selected.map(c => parseInt(c.dataset.id));
   const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Gerando zip…';
+  btn.disabled = true;
   try {
-    const r = await fetch(URLS.downloadZip, {
-      method: 'POST', headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
-    });
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}));
-      alert(d.error || 'Falha ao gerar o download.');
-      return;
-    }
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `aquisicoes_${Date.now()}.zip`;
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-  } catch (e) {
-    alert('Erro ao baixar as imagens.');
+    await runExportJob(URLS.downloadZip, { ids }, 'Gerando zip das imagens…');
   } finally {
     btn.disabled = false; btn.textContent = orig;
   }
@@ -440,52 +475,17 @@ function closeModal(event) {
 async function doExport(type) {
   const selected = [...document.querySelectorAll('.card.selected')];
   const ids = selected.map(c => parseInt(c.dataset.id));
+  document.getElementById('export-modal').classList.remove('open');
 
   if (type === 'rois') {
-    apiJSON(URLS.exportRois, { ids }).then(data => {
-      const blob = new Blob([data.csv], { type: 'text/csv;charset=utf-8' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob); a.download = 'roi_espectros.csv'; a.click();
-      document.getElementById('export-modal').classList.remove('open');
-    });
-    return;
-  }
-  if (type === 'cls') {
-    apiJSON(URLS.exportCls, { ids }).then(data => {
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob); a.download = 'classification_annotations.json'; a.click();
-      document.getElementById('export-modal').classList.remove('open');
-    });
-    return;
-  }
-
-  // seg/det: baixa o .zip completo (imagens + labels + data.yaml), pronto
-  // pra treinar o YOLO -- ver views.ml_dataset_export e a ferramenta de treino em Machine Learning.
-  const btn = document.getElementById(type === 'seg' ? 'btn-seg' : 'btn-det');
-  const origLabel = btn.querySelector('.opt-label').textContent;
-  btn.disabled = true; btn.querySelector('.opt-label').textContent = 'Gerando .zip…';
-  try {
-    const r = await fetch(URLS.exportDataset, {
-      method: 'POST', headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ task: type, ids, val_split: 0.2 }),
-    });
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}));
-      alert(d.error || 'Falha ao gerar o dataset.');
-      return;
-    }
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `dataset_${type}_${Date.now()}.zip`;
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-    document.getElementById('export-modal').classList.remove('open');
-  } catch (e) {
-    alert('Erro ao gerar o dataset.');
-  } finally {
-    btn.disabled = false; btn.querySelector('.opt-label').textContent = origLabel;
+    await runExportJob(URLS.exportRois, { ids }, 'Gerando CSV das medições…');
+  } else if (type === 'cls') {
+    await runExportJob(URLS.exportCls, { ids }, 'Gerando classificação…');
+  } else {
+    // seg/det: .zip completo (imagens + labels + data.yaml) pra treinar o YOLO
+    // fora do Pi -- ver views.ml_dataset_export e a ferramenta de treino em Machine Learning.
+    await runExportJob(URLS.exportDataset, { task: type, ids, val_split: 0.2 },
+                       type === 'seg' ? 'Gerando dataset de segmentação…' : 'Gerando dataset de detecção…');
   }
 }
 
