@@ -10,6 +10,7 @@ Pasta da ferramenta (spectralcrops_treino.zip):
   iniciar_treino.bat   -- atalho pra Windows
   iniciar_treino.sh    -- atalho pra Linux / macOS
   LEIA-ME.txt          -- este arquivo
+  logo.png, icon.png   -- logo do SpectralCrops usado na janela
 
 
 Passo a passo
@@ -33,18 +34,25 @@ Passo a passo
    O terminal mostra cada etapa, inclusive se a GPU foi encontrada.
 
 4. Na janela:
-   - Clique em "Escolher data.yaml..." e selecione o data.yaml do dataset
-     que voce exportou (ele fica na pasta extraida do dataset, ex.:
+   - Clique em "Adicionar..." e selecione o data.yaml do dataset que voce
+     exportou (ele fica na pasta extraida do dataset, ex.:
      dataset_seg_123456\data.yaml).
+   - Pra treinar com exports de MAIS DE UM projeto (ex.: dois projetos de
+     soja), clique em "Adicionar..." de novo pra cada um. Eles precisam ter
+     as mesmas classes.
    - Escolha a tarefa: Segmentacao (se exportou Segmentacao) ou Deteccao
      (se exportou Deteccao). Tem que ser a MESMA do dataset.
-   - Clique em "Iniciar treinamento". O painel mostra o progresso por lote e
-     um resumo por epoca.
+   - Clique em "Iniciar treinamento". Uma janela pergunta ONDE salvar e o
+     NOME da pasta do treino (ja vem sugerido, ex.: treino_seg_2026-10-08_19-40;
+     a ultima pasta escolhida e lembrada). Tudo do treino vai pra essa pasta;
+     os datasets exportados nao sao alterados. O painel mostra o progresso
+     por lote e um resumo por epoca.
 
-5. Ao terminar, clique em "Abrir pasta do modelo treinado". O arquivo que
+5. Ao terminar, clique em "Abrir pasta do modelo". O arquivo que
    importa e:
-       runs/spectralcrops/weights/best.pt
-   (dentro da pasta do dataset)
+       <pasta do treino>/weights/best.pt
+   Na mesma pasta ficam os graficos (results.png, matriz de confusao...),
+   o results.csv, o data_treino.yaml e as imagens divididas (_split_treino/).
 
 6. No SpectralCrops, abra Machine Learning, escolha o projeto certo e envie o
    best.pt no campo de segmentacao (ou deteccao, conforme a tarefa). Depois
@@ -53,6 +61,15 @@ Passo a passo
 
 Dicas
 -----
+- Treino x validacao: o treinador junta todas as imagens do(s) dataset(s) e
+  divide de novo, conforme os parametros val_split (proporcao pra
+  validacao, padrao 0.2) e split_by:
+    sample -> divide por SEMENTE. Cada imagem entra no treino e na
+              validacao; em cada copia, as sementes do outro lado sao
+              apagadas (pintadas com a cor do fundo ao redor). Funciona ate
+              com 1-2 imagens.
+    image  -> cada imagem inteira vai pra um lado so (precisa de 2+ imagens).
+  As imagens divididas ficam em <pasta do treino>/_split_treino/.
 - GPU NVIDIA: o atalho detecta a placa e, se o PyTorch estiver so com CPU,
   instala a versao com CUDA sozinho na primeira vez (download grande, uma vez
   so). A linha "GPU disponivel" no terminal mostra o resultado: tem que dar

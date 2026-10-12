@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 spectral_project/captures_test/
 spectral_project/projects/
+spectral_project/spectral_app/yolo_kit/treinador_config.json

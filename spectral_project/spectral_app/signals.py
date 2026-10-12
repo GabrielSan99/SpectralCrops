@@ -50,7 +50,7 @@ def create_default_project_for_new_user(sender, instance, created, **kwargs):
 
 @receiver(post_delete, sender=DataAcquisition)
 def delete_acquisition_folder(sender, instance, **kwargs):
-    """Apaga a pasta de imagens (raw/normalized/rgb) do disco junto com o
+    """Apaga a pasta de imagens (raw/calibrated/rgb) do disco junto com o
     registro -- dispara tanto num delete direto (data_acquisition_delete)
     quanto num CASCADE vindo da exclusao do projeto (Project.on_delete nos
     campos de calibracao/aquisicao agora e CASCADE, nao SET_NULL -- sem

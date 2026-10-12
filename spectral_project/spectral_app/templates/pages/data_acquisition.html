@@ -87,7 +87,7 @@
     .acq-rgb img { display: block; width: 100%; height: auto; }
     .acq-rgb figcaption { font-size: 0.7rem; color: var(--muted2); text-align: center; padding: 6px 4px; }
 
-    /* Galeria: 8 bandas, cada uma com um par raw + mapa (normalizado) lado a lado -> 16 imagens */
+    /* Galeria: 8 bandas, cada uma com um par raw + calibrada (calibrated/ no disco) lado a lado -> 16 imagens */
     .acq-result { font-size: 0.78rem; color: var(--muted2); line-height: 1.6; margin-bottom: 0.9rem; }
     .acq-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
                     gap: 12px; margin-bottom: 0.9rem; }
@@ -143,7 +143,7 @@
     <div class="page-head">
       <div>
         <h1>Data Acquisition</h1>
-        <p class="sub">Capture as 8 bandas espectrais de uma amostra, normalizadas pela calibração de reflectância.</p>
+        <p class="sub">Capture as 8 bandas espectrais de uma amostra, já calibradas pelas referências de reflectância 100% e 0%.</p>
       </div>
       <a class="project-pill" href="{% url 'index' %}" title="Trocar de projeto na Home">📁 {{ project.name }}</a>
     </div>
@@ -357,7 +357,7 @@ function renderGallery(images) {
     const row = document.createElement('div');
     row.className = 'acq-pair';
     row.appendChild(makeThumb(pair.raw, 'Raw', b.nm));
-    row.appendChild(makeThumb(pair.norm, 'Mapa', b.nm));
+    row.appendChild(makeThumb(pair.norm, 'Calibrada', b.nm));
     card.appendChild(title); card.appendChild(row);
     el.appendChild(card);
   });

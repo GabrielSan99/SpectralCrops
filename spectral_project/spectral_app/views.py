@@ -492,17 +492,14 @@ MIN_REFLECTANCE_RANGE = 15
 # informacao real).
 SATURATION_RAW_THRESHOLD = 250
 
-# Teto de reflectancia (%) que ainda faz sentido fisico -- um pouco acima de
-# 100% cobre ruido normal de medicao, mas nao os casos vistos na pratica
-# (150-1450%). Pega tambem o ROI que NAO chegou a clipar no sensor (raw bem
-# abaixo de 255) mas ainda assim mediu mais claro que o proprio branco de
-# referencia -- normalmente reflexo especular na superficie da semente
-# (brilho pontual mais intenso que o alvo branco difuso) ou geometria/
-# intensidade de LED fortes demais pra aquele ponto -- em qualquer um dos
-# casos nao e reflectancia difusa de verdade, e SATURATION_RAW_THRESHOLD
-# sozinho nao pega (visto na pratica: raw=227.7 sem bater no teto, mas ainda
-# assim 154% -- muito acima do branco de 100%). Ver _roi_reflectance_pct.
-REFLECTANCE_MAX_PCT = 110
+# Padrao de reflectancia do app (decisao do usuario, 2026-10-12): todo pixel e
+# limitado a 0-100% ANTES de qualquer media -- o branco de referencia e o teto.
+# Vale igual pras imagens (calibrated/, rgb, export), pras medicoes (Calcular
+# ROIs, curva espectral), nos dois modos de calibracao -- o SAM fica de fora
+# (so acha contornos, ver _reflectance_cube). Substitui a
+# regra antiga (media sem corte + descarte acima de 110%). Semente SATURADA no
+# sensor (foto crua >= SATURATION_RAW_THRESHOLD) continua descartada: ali o
+# valor real e desconhecido.
 
 # ultimo brilho "ligado" de cada banda, pra o toggle restaurar
 _led_last = {}
@@ -1030,6 +1027,7 @@ def parameterization(request):
                    "cam": cam, "project": project, "led_stabilize_seconds": LED_STABILIZE_SECONDS,
                    "refl_stale": refl_stale, "refl0_stale": refl0_stale,
                    "refl_image_url": refl_image_url, "refl0_image_url": refl0_image_url,
+                   "refl_mode": project.refl_mode, "pixel_cal_ok": _pixel_cal_ok(refl, refl0),
                    "locked": _project_locked(project)})
 
 
@@ -1409,6 +1407,7 @@ def param_reflectance_capture(request):
         _reflectance_capture.clear()
         _reflectance_capture['session'] = session
         _reflectance_capture['frames'] = frames
+        _reflectance_capture['folder'] = folder   # fotos inteiras -> ReflectanceCalibration.frames_dir
 
     return JsonResponse({"ok": True, "session": session, "folder": folder,
                          "image_data": image_data,
@@ -1430,6 +1429,7 @@ def param_reflectance_compute(request):
     with _reflectance_lock:
         session = _reflectance_capture.get('session')
         frames = _reflectance_capture.get('frames')
+        frames_dir = _reflectance_capture.get('folder', "")
 
     if not frames or data.get('session') != session:
         return JsonResponse({"ok": False,
@@ -1452,7 +1452,8 @@ def param_reflectance_compute(request):
     # uma calibracao de reflectancia 100% por projeto -- a nova SUBSTITUI a
     # anterior (nao acumula linha no banco a cada captura/recalculo de bbox)
     cal, _created = ReflectanceCalibration.objects.update_or_create(
-        project=project, defaults={"means": means, "bbox_x": x, "bbox_y": y, "bbox_w": w, "bbox_h": h})
+        project=project, defaults={"means": means, "bbox_x": x, "bbox_y": y, "bbox_w": w, "bbox_h": h,
+                                   "frames_dir": frames_dir})
     base_frame = frames.get(REFL_BASE_BAND)
     if base_frame is not None:
         ok_enc, buf = cv2.imencode('.png', base_frame)
@@ -1467,6 +1468,32 @@ def param_reflectance_compute(request):
     # substituida quando uma nova captura acontecer (param_reflectance_capture).
 
     return JsonResponse({"ok": True, "means": means})
+
+
+@login_required
+@require_unlocked
+def param_refl_mode(request):
+    """Modo de calibração da reflectância do projeto ativo: "mean" (média da
+    região, um branco/escuro por banda) ou "pixel" (pixel a pixel, fotos
+    inteiras da calibração -- exige frames_dir nas duas calibrações)."""
+    if request.method != 'POST':
+        return JsonResponse({"error": "POST"}, status=405)
+    project = _get_active_project(request)
+    if not project:
+        return JsonResponse({"ok": False, "error": "Selecione um projeto na Home."}, status=400)
+    mode = (json.loads(request.body or "{}")).get("mode")
+    if mode not in Project.ReflectanceMode.values:
+        return JsonResponse({"ok": False, "error": "Modo inválido."}, status=400)
+    if mode == Project.ReflectanceMode.PIXEL:
+        refl = ReflectanceCalibration.objects.filter(project=project).first()
+        refl0 = ReflectanceZeroCalibration.objects.filter(project=project).first()
+        if not _pixel_cal_ok(refl, refl0):
+            return JsonResponse({"ok": False, "error": "O modo pixel a pixel usa as fotos inteiras da calibração, "
+                                 "que só ficam guardadas em calibrações feitas a partir desta versão. "
+                                 "Refaça as calibrações 100% e 0% e tente de novo."}, status=409)
+    project.refl_mode = mode
+    project.save(update_fields=["refl_mode"])
+    return JsonResponse({"ok": True, "mode": mode})
 
 
 @login_required
@@ -1525,7 +1552,7 @@ def param_reflectance_zero(request):
 
     # uma calibracao de reflectancia 0% por projeto -- a nova SUBSTITUI a anterior
     cal, _created = ReflectanceZeroCalibration.objects.update_or_create(
-        project=project, defaults={"means": means})
+        project=project, defaults={"means": means, "frames_dir": folder})
     base_frame = frames.get(REFL_BASE_BAND)
     image_data = ""
     if base_frame is not None:
@@ -1619,8 +1646,8 @@ def data_acquisition(request):
             # no momento do salvamento -- confere o arquivo de verdade em
             # disco, nao um campo no banco (DataAcquisition nao guarda mais
             # means/reflectance do frame inteiro)
-            norm_url = (f"{settings.MEDIA_URL}acquisitions/{acq.folder}/normalized/{nm}nm.png"
-                        if _acquisition_has_normalized(acq, nm) else "")
+            norm_url = (f"{settings.MEDIA_URL}acquisitions/{acq.folder}/{_acquisition_calibrated_subdir(acq)}/{nm}nm.png"
+                        if _acquisition_has_calibrated(acq, nm) else "")
             # banda unica -> exibe com o colormap nipy_spectral (ver _spectral_url);
             # o arquivo em disco continua cru, so a URL de exibicao muda
             acq_images.append({"nm": nm, "raw_url": _spectral_url(raw_url),
@@ -1730,6 +1757,98 @@ def _normalize_frame(frame, white_mean, dark_mean):
     return np.clip(scaled, 0, 255).astype(np.uint8)
 
 
+# ── Calibracao pixel a pixel (Project.refl_mode = "pixel") ────────────────────
+# Em vez de UM branco/escuro por banda (media da regiao selecionada), cada pixel
+# e comparado com o branco/escuro NAQUELE ponto, usando as fotos inteiras da
+# calibracao (frames_dir). Corrige iluminacao desigual -- manchas dos LEDs,
+# vinheta da lente. Exige que a placa branca cubra toda a area analisada.
+# As fotos de referencia passam por um blur leve: sem ele, o ruido do sensor
+# em cada pixel do branco/escuro (desvio ~2 niveis no escuro) passaria pra
+# todas as medicoes; a iluminacao varia devagar, entao o blur nao perde nada.
+REFL_PIXEL_BLUR_SIGMA = 2.0
+_pixel_cal_cache = {}            # {chave da calibracao: {nm: (escuro, branco-escuro)}} -- 1 projeto por vez
+_pixel_cal_lock = threading.Lock()
+
+
+def _pixel_mode(project):
+    return bool(project) and project.refl_mode == Project.ReflectanceMode.PIXEL
+
+
+def _pixel_calibration(refl, refl0):
+    """{nm: (escuro, branco-escuro)} -- mapas float32 (H, W) das fotos inteiras
+    da calibracao. Pixel com faixa branco-escuro curta demais
+    (MIN_REFLECTANCE_RANGE) ou branco saturado vira NaN (sem reflectancia
+    confiavel ali). None se as fotos nao existem (calibracao antiga, sem frames_dir)."""
+    if not (refl and refl0 and refl.frames_dir and refl0.frames_dir):
+        return None
+    key = (refl.id, refl.frames_dir, str(refl.created), refl0.id, refl0.frames_dir, str(refl0.created))
+    with _pixel_cal_lock:
+        if key in _pixel_cal_cache:
+            return _pixel_cal_cache[key]
+    base = os.path.join(settings.MEDIA_ROOT, "reflectance_parametrization")
+    maps = {}
+    for nm in LED_BANDS:
+        white = cv2.imread(os.path.join(base, refl.frames_dir, f"{nm}nm.png"), cv2.IMREAD_GRAYSCALE)
+        dark = cv2.imread(os.path.join(base, refl0.frames_dir, f"{nm}nm.png"), cv2.IMREAD_GRAYSCALE)
+        if white is None or dark is None or white.shape != dark.shape:
+            continue
+        saturated = cv2.dilate((white >= SATURATION_RAW_THRESHOLD).astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+        white_f = cv2.GaussianBlur(white.astype(np.float32), (0, 0), REFL_PIXEL_BLUR_SIGMA)
+        dark_f = cv2.GaussianBlur(dark.astype(np.float32), (0, 0), REFL_PIXEL_BLUR_SIGMA)
+        denom = white_f - dark_f
+        denom[(denom < MIN_REFLECTANCE_RANGE) | saturated] = np.nan
+        maps[nm] = (dark_f, denom)
+    if not maps:
+        return None
+    with _pixel_cal_lock:
+        _pixel_cal_cache.clear()        # 1 projeto por vez: ~64 MB, pesa no Pi
+        _pixel_cal_cache[key] = maps
+    return maps
+
+
+def _pixel_cal_ok(refl, refl0):
+    """O modo pixel a pixel tem as fotos inteiras dessa calibracao em disco?"""
+    if not (refl and refl0 and refl.frames_dir and refl0.frames_dir):
+        return False
+    base = os.path.join(settings.MEDIA_ROOT, "reflectance_parametrization")
+    return all(os.path.exists(os.path.join(base, d, f"{nm}nm.png"))
+               for d in (refl.frames_dir, refl0.frames_dir) for nm in LED_BANDS)
+
+
+def _reflectance_map(gray, nm, pixcal):
+    """Reflectancia (fracao, float32) de cada pixel de uma foto CRUA em cinza,
+    no modo pixel a pixel. NaN onde a calibracao nao e confiavel. None se a
+    banda nao tem calibracao ou o tamanho nao bate."""
+    if not pixcal or nm not in pixcal:
+        return None
+    dark, denom = pixcal[nm]
+    if gray.shape[:2] != dark.shape:
+        return None
+    return (gray.astype(np.float32) - dark) / denom
+
+
+def _normalize_band(frame, nm, refl, refl0, pixcal=None):
+    """Versao normalizada (0-255 = 0-100%) de uma foto pra exibicao/calibrated/:
+    modo media -> _normalize_frame de sempre; modo pixel (pixcal) -> pixel a pixel."""
+    if pixcal is None:
+        return _normalize_frame(frame, refl.means.get(nm), refl0.means.get(nm))
+    if nm not in pixcal:
+        return None
+    dark, denom = pixcal[nm]
+    if frame.shape[:2] != dark.shape:
+        return None
+    f = frame.astype(np.float32)
+    if f.ndim == 3:
+        dark, denom = dark[..., None], denom[..., None]
+    scaled = np.nan_to_num((f - dark) / denom * 255.0, nan=0.0)
+    return np.clip(scaled, 0, 255).astype(np.uint8)
+
+
+def _project_pixcal(project, refl, refl0):
+    """Mapas da calibracao se o projeto esta em modo pixel a pixel, senao None (modo media)."""
+    return _pixel_calibration(refl, refl0) if _pixel_mode(project) else None
+
+
 # RGB artificial ("natural color"): usa as 3 bandas mais proximas do visivel
 # como canal R/G/B -- so pra VISUALIZACAO (galeria e a imagem de referencia
 # onde o usuario seleciona os ROIs no Annotate). Os calculos de reflectancia
@@ -1737,7 +1856,7 @@ def _normalize_frame(frame, white_mean, dark_mean):
 RGB_COMPOSITE_BANDS = {"r": "660", "g": "520", "b": "460"}
 
 
-def _rgb_composite(frames, refl, refl0):
+def _rgb_composite(frames, refl, refl0, pixcal=None):
     """Monta a composicao a partir dos frames em memoria (mesmos usados pra
     salvar raw/normalized). Usa a versao normalizada de cada canal quando ha
     calibracao (bandas ficam comparaveis em brilho entre si), senao cai pra
@@ -1747,7 +1866,7 @@ def _rgb_composite(frames, refl, refl0):
         frame = frames.get(nm)
         if frame is None:
             return None
-        norm = _normalize_frame(frame, refl.means.get(nm), refl0.means.get(nm)) if (refl and refl0) else None
+        norm = _normalize_band(frame, nm, refl, refl0, pixcal) if (refl and refl0) else None
         channels[ch] = norm if norm is not None else frame
     b = cv2.cvtColor(channels["b"], cv2.COLOR_BGR2GRAY)
     g = cv2.cvtColor(channels["g"], cv2.COLOR_BGR2GRAY)
@@ -1819,6 +1938,7 @@ def data_acquisition_capture(request):
     refl = ReflectanceCalibration.objects.filter(project=project).first()
     refl0 = ReflectanceZeroCalibration.objects.filter(project=project).first()
     has_calibration = bool(refl and refl0)
+    pixcal = _project_pixcal(project, refl, refl0) if has_calibration else None
 
     session = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     with _acquisition_lock:
@@ -1833,13 +1953,13 @@ def data_acquisition_capture(request):
         raw_data = _encode_png_b64(frame, colorize=True)
         norm_data = None
         if has_calibration:
-            norm = _normalize_frame(frame, refl.means.get(nm), refl0.means.get(nm))
+            norm = _normalize_band(frame, nm, refl, refl0, pixcal)
             if norm is not None:
                 norm_data = _encode_png_b64(norm, colorize=True)
         images[nm] = {"raw": raw_data, "norm": norm_data}
 
     rgb_data = None
-    rgb = _rgb_composite(frames, refl, refl0)
+    rgb = _rgb_composite(frames, refl, refl0, pixcal)
     if rgb is not None:
         ok_enc, buf = cv2.imencode('.png', rgb)
         if ok_enc:
@@ -1876,20 +1996,21 @@ def data_acquisition_save(request):
     folder = _dated_name(project, name)
     out_dir = os.path.join(settings.MEDIA_ROOT, "acquisitions", folder)
     os.makedirs(os.path.join(out_dir, "raw"), exist_ok=True)
-    os.makedirs(os.path.join(out_dir, "normalized"), exist_ok=True)
+    os.makedirs(os.path.join(out_dir, CALIBRATED_DIR), exist_ok=True)
 
     refl = ReflectanceCalibration.objects.filter(project=project).first()
     refl0 = ReflectanceZeroCalibration.objects.filter(project=project).first()
     has_calibration = bool(refl and refl0)
+    pixcal = _project_pixcal(project, refl, refl0) if has_calibration else None
 
     for nm, frame in frames.items():
         cv2.imwrite(os.path.join(out_dir, "raw", f"{nm}nm.png"), frame)
         if has_calibration:
-            norm = _normalize_frame(frame, refl.means.get(nm), refl0.means.get(nm))
+            norm = _normalize_band(frame, nm, refl, refl0, pixcal)
             if norm is not None:
-                cv2.imwrite(os.path.join(out_dir, "normalized", f"{nm}nm.png"), norm)
+                cv2.imwrite(os.path.join(out_dir, CALIBRATED_DIR, f"{nm}nm.png"), norm)
 
-    rgb = _rgb_composite(frames, refl, refl0)
+    rgb = _rgb_composite(frames, refl, refl0, pixcal)
     if rgb is not None:
         cv2.imwrite(os.path.join(out_dir, "rgb.png"), rgb)
 
@@ -1924,14 +2045,15 @@ def data_acquisition_delete(request, acq_id):
 
 
 # Limite de aquisicoes por download em lote -- cada uma tem ~17 PNGs
-# (raw + normalized + rgb), entao um zip sem limite pode ficar gigante e
+# (raw + calibrated + rgb), entao um zip sem limite pode ficar gigante e
 # travar o navegador/servidor. 30 e um teto razoavel pra rodar num Raspberry Pi.
 MAX_ZIP_DOWNLOAD_ACQUISITIONS = 30
 
 
 @login_required
 def data_acquisition_download_zip(request):
-    """Baixa as pastas (raw/ + normalized/ + rgb.png) das aquisicoes
+    """Baixa as pastas (raw/ + calibrated/ + rgb.png) das aquisicoes -- uma
+    aquisicao antiga com calibrated/ sai no zip ja como calibrated/ --
     selecionadas, uma por uma, dentro de um unico .zip -- mesma logica de
     selecao dos botoes de exportar (ids do projeto ativo). Escreve num
     arquivo temporario em disco (nao em memoria) pra nao estourar RAM com
@@ -1963,7 +2085,11 @@ def data_acquisition_download_zip(request):
         for dirpath, _dirnames, filenames in os.walk(folder_path):
             for fname in filenames:
                 fpath = os.path.join(dirpath, fname)
-                arcname = os.path.join(acq.folder, os.path.relpath(fpath, folder_path))  # acq.folder ja e unico/datado
+                rel = os.path.relpath(fpath, folder_path)
+                parts = rel.split(os.sep)
+                if parts[0] == LEGACY_CALIBRATED_DIR:
+                    parts[0] = CALIBRATED_DIR
+                arcname = os.path.join(acq.folder, *parts)  # acq.folder ja e unico/datado
                 jobs_files.append((fpath, arcname))
 
     def work(report):
@@ -1996,18 +2122,45 @@ def data_acquisition_download_zip(request):
 ANNOTATION_BAND = REFL_BASE_BAND  # banda usada como base pra anotar/segmentar
 
 
-def _acquisition_has_normalized(acq, nm):
-    """Confere se a versao normalizada dessa banda existe de verdade em
-    disco -- DataAcquisition nao guarda mais um dict indicando quais bandas
-    tinham calibracao no momento do salvamento (ver ROIMeasurement)."""
+# Pasta das bandas CALIBRADAS (reflectancia 0-255 = 0-100%) dentro de cada
+# aquisicao. Chamava "calibrated/" ate 2026-10-12 -- aquisicoes antigas que ainda
+# nao foram renomeadas (comando `manage.py rename_calibrated_dirs`) continuam
+# sendo lidas pelo nome antigo; tudo que e GRAVADO vai pra CALIBRATED_DIR.
+CALIBRATED_DIR = "calibrated"
+LEGACY_CALIBRATED_DIR = "normalized"
+
+
+def _acquisition_calibrated_subdir(acq):
+    """Nome da pasta calibrada que existe em disco pra essa aquisicao
+    (CALIBRATED_DIR, ou LEGACY_CALIBRATED_DIR numa aquisicao antiga), ou None."""
     if not acq.folder:
-        return False
-    path = os.path.join(settings.MEDIA_ROOT, "acquisitions", acq.folder, "normalized", f"{nm}nm.png")
-    return os.path.exists(path)
+        return None
+    base = os.path.join(settings.MEDIA_ROOT, "acquisitions", acq.folder)
+    for sub in (CALIBRATED_DIR, LEGACY_CALIBRATED_DIR):
+        if os.path.isdir(os.path.join(base, sub)):
+            return sub
+    return None
+
+
+def _acquisition_calibrated_path(acq, nm):
+    """Caminho da banda calibrada em disco, ou None se ela nao existe --
+    DataAcquisition nao guarda quais bandas tinham calibracao no momento do
+    salvamento, entao confere o arquivo de verdade."""
+    sub = _acquisition_calibrated_subdir(acq)
+    if not sub:
+        return None
+    path = os.path.join(settings.MEDIA_ROOT, "acquisitions", acq.folder, sub, f"{nm}nm.png")
+    return path if os.path.exists(path) else None
+
+
+def _acquisition_has_calibrated(acq, nm):
+    return _acquisition_calibrated_path(acq, nm) is not None
 
 
 def _acquisition_ref_subdir(acq):
-    return "normalized" if _acquisition_has_normalized(acq, ANNOTATION_BAND) else "raw"
+    if _acquisition_has_calibrated(acq, ANNOTATION_BAND):
+        return _acquisition_calibrated_subdir(acq)
+    return "raw"
 
 
 def _acquisition_rgb_path(acq):
@@ -2025,9 +2178,17 @@ def _acquisition_rgb_path(acq):
 ROI_POINT_RADIUS_PX = 8   # janela (em pixels) ao redor de um ROI tipo ponto, pra tirar a media
 
 
-def _roi_mean(gray, contour):
+def _roi_mean(gray, contour, nan_aware=False):
     """Media (0-255) dos pixels de `gray` (array 2D) dentro do ROI descrito
-    por `contour`. None se a regiao ficar vazia/fora da imagem."""
+    por `contour`. None se a regiao ficar vazia/fora da imagem. nan_aware:
+    ignora NaN (mapa de reflectancia do modo pixel a pixel, ver _reflectance_map)."""
+    def reduce(vals):
+        if not vals.size:
+            return None
+        if nan_aware:
+            ok = vals[np.isfinite(vals)]
+            return float(ok.mean()) if ok.size else None
+        return float(vals.mean())
     h, w = gray.shape[:2]
     kind = contour.get("shape")
     if kind == "box":
@@ -2035,22 +2196,19 @@ def _roi_mean(gray, contour):
         y0, y1 = sorted((contour["y1"], contour["y2"]))
         x0, y0 = max(0, int(x0)), max(0, int(y0))
         x1, y1 = min(w, int(x1)), min(h, int(y1))
-        crop = gray[y0:y1, x0:x1]
-        return float(crop.mean()) if crop.size else None
+        return reduce(gray[y0:y1, x0:x1])
     if kind == "point":
         r = ROI_POINT_RADIUS_PX
         cx, cy = int(contour["x"]), int(contour["y"])
         x0, y0 = max(0, cx - r), max(0, cy - r)
         x1, y1 = min(w, cx + r), min(h, cy + r)
-        crop = gray[y0:y1, x0:x1]
-        return float(crop.mean()) if crop.size else None
+        return reduce(gray[y0:y1, x0:x1])
     pts = contour.get("points") or []
     if len(pts) < 3:
         return None
     mask = np.zeros((h, w), dtype=np.uint8)
     cv2.fillPoly(mask, [np.array(pts, dtype=np.int32)], 255)
-    vals = gray[mask > 0]
-    return float(vals.mean()) if vals.size else None
+    return reduce(gray[mask > 0])
 
 
 def _roi_area_px(contour):
@@ -2099,23 +2257,35 @@ def _roi_bbox_px(contour):
     return max(xs) - min(xs), max(ys) - min(ys)
 
 
-def _roi_reflectance_pct(raw, white, dark):
-    """None quando: a faixa (branco-escuro) e curta demais pra confiar (ver
-    MIN_REFLECTANCE_RANGE); o bruto da amostra ou do proprio branco de
-    referencia esta literalmente SATURADO no sensor (ver
-    SATURATION_RAW_THRESHOLD); ou o resultado passa de REFLECTANCE_MAX_PCT
-    (pega tambem o caso sem clipping mas ainda fisicamente implausivel --
-    normalmente reflexo especular). Em qualquer um desses casos a media do
-    ROI nao representa reflectancia difusa de verdade, entao nao faz sentido
-    devolver um numero como se fosse confiavel."""
-    if white is None or dark is None or (white - dark) < MIN_REFLECTANCE_RANGE:
+def _reflectance_maps(frames, refl, refl0, pixcal):
+    """{nm: mapa de reflectancia (fracao 0-1, float32, ja limitado a 0-100%)}
+    a partir das fotos CRUAS em cinza, no modo do projeto: pixcal (pixel a
+    pixel) ou a media da regiao (refl/refl0.means). Banda sem calibracao
+    confiavel fica de fora; pixel sem calibracao confiavel (so no modo pixel) e NaN."""
+    maps = {}
+    for nm, gray in frames.items():
+        if pixcal:
+            rmap = _reflectance_map(gray, nm, pixcal)
+        else:
+            white, dark = refl.means.get(nm), refl0.means.get(nm)
+            if (white is None or dark is None or (white - dark) < MIN_REFLECTANCE_RANGE
+                    or white >= SATURATION_RAW_THRESHOLD):
+                continue
+            rmap = (gray.astype(np.float32) - dark) / (white - dark)
+        if rmap is not None:
+            maps[nm] = np.clip(rmap, 0.0, 1.0)   # NaN continua NaN
+    return maps
+
+
+def _roi_reflectance(gray, rmap, contour):
+    """Reflectancia (%) do ROI: media do mapa de reflectancia (ja limitado a
+    0-100%) dentro da regiao. None se o ROI estiver saturado no sensor (media
+    crua >= SATURATION_RAW_THRESHOLD) ou sem nenhum pixel com calibracao."""
+    raw = _roi_mean(gray, contour)
+    if raw is None or raw >= SATURATION_RAW_THRESHOLD or rmap is None:
         return None
-    if raw >= SATURATION_RAW_THRESHOLD or white >= SATURATION_RAW_THRESHOLD:
-        return None
-    pct = (raw - dark) / (white - dark) * 100
-    if pct > REFLECTANCE_MAX_PCT:
-        return None
-    return round(pct, 2)
+    frac = _roi_mean(rmap, contour, nan_aware=True)
+    return round(frac * 100, 2) if frac is not None else None
 
 
 @login_required
@@ -2143,11 +2313,11 @@ def roi_measurement_compute(request, acq_id):
     if not acq.folder:
         return JsonResponse({"ok": False, "error": "Aquisição sem fotos salvas."}, status=409)
 
-    # SEMPRE "raw" aqui, nunca "normalized" -- normalized/ ja saiu de
+    # SEMPRE "raw" aqui, nunca a calibrada -- calibrated/ ja saiu de
     # _normalize_frame() (dark_mean->0, white_mean->255, ver
     # data_acquisition_save), ou seja, ja E a reflectancia (calibracao ja
     # aplicada, so pra pre-visualizacao). Ler dali e aplicar
-    # _roi_reflectance_pct DE NOVO em cima aplica a calibracao duas vezes
+    # a calibracao DE NOVO em cima (_reflectance_maps) aplica ela duas vezes
     # (f(f(x)), nao idempotente) -- e o que causava reflectancia negativa e
     # >100% erraticas, nao ruido de medicao de verdade. _acquisition_ref_subdir
     # (que prefere normalized) e so pra imagem de REFERENCIA VISUAL no
@@ -2164,6 +2334,8 @@ def roi_measurement_compute(request, acq_id):
     refl = ReflectanceCalibration.objects.filter(project=project).first()
     refl0 = ReflectanceZeroCalibration.objects.filter(project=project).first()
     has_calibration = bool(refl and refl0)
+    pixcal = _project_pixcal(project, refl, refl0) if has_calibration else None
+    refl_maps = _reflectance_maps(frames, refl, refl0, pixcal) if has_calibration else {}
     geo = GeometricCalibration.objects.filter(project=project).first()  # opcional -- nao bloqueia nada
 
     rois = []   # [(method, label, contour), ...]
@@ -2189,8 +2361,8 @@ def roi_measurement_compute(request, acq_id):
                 means[nm] = round(v, 2)
         reflectance = {}
         if has_calibration:
-            for nm, raw in means.items():
-                pct = _roi_reflectance_pct(raw, refl.means.get(nm), refl0.means.get(nm))
+            for nm in means:
+                pct = _roi_reflectance(frames[nm], refl_maps.get(nm), contour)
                 if pct is not None:
                     reflectance[nm] = pct
 
@@ -2221,6 +2393,67 @@ def roi_measurement_compute(request, acq_id):
         by_method[r.method] = by_method.get(r.method, 0) + 1
 
     return JsonResponse({"ok": True, "total": len(rows), "by_method": by_method})
+
+
+# Fotos cruas das últimas aquisições abertas no Annotate: a curva espectral é
+# pedida a cada seleção/edição de forma, e reler 8 PNGs do disco toda vez
+# deixaria o clique lento (principalmente no Pi).
+_raw_frames_cache = {}            # {(acq_id, folder): {nm: ndarray}}
+_raw_frames_lock = threading.Lock()
+RAW_FRAMES_CACHE_SIZE = 2
+
+
+def _raw_frames(acq):
+    key = (acq.id, acq.folder)
+    with _raw_frames_lock:
+        if key in _raw_frames_cache:
+            return _raw_frames_cache[key]
+    frames = {}
+    for nm in LED_BANDS:
+        path = os.path.join(settings.MEDIA_ROOT, "acquisitions", acq.folder, "raw", f"{nm}nm.png")
+        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        if img is not None:
+            frames[nm] = img
+    with _raw_frames_lock:
+        while len(_raw_frames_cache) >= RAW_FRAMES_CACHE_SIZE:
+            _raw_frames_cache.pop(next(iter(_raw_frames_cache)))
+        _raw_frames_cache[key] = frames
+    return frames
+
+
+@login_required
+def roi_spectrum(request, acq_id):
+    """Curva espectral de UMA forma (selecionada no Annotate, salva ou não):
+    reflectância média (%) da região em cada banda -- mesma conta de
+    roi_measurement_compute (fotos CRUAS -> _reflectance_maps -> _roi_reflectance),
+    então bate com o "Calcular ROIs". `shape` vem no formato de
+    ROIMeasurement.contour: box (x1..y2), ellipse/polygon (points) ou point (x, y)."""
+    if request.method != 'POST':
+        return JsonResponse({"error": "POST"}, status=405)
+    acq = _owned_acquisition(request, acq_id)
+    if not acq or not acq.folder:
+        return JsonResponse({"error": "Aquisição não encontrada."}, status=404)
+    contour = (json.loads(request.body or "{}")).get("shape") or {}
+    if contour.get("shape") not in ("box", "ellipse", "polygon", "point"):
+        return JsonResponse({"error": "Forma inválida."}, status=400)
+    frames = _raw_frames(acq)
+    if not frames:
+        return JsonResponse({"error": "Nenhuma foto encontrada em disco pra essa aquisição."}, status=409)
+    refl = ReflectanceCalibration.objects.filter(project=acq.project).first()
+    refl0 = ReflectanceZeroCalibration.objects.filter(project=acq.project).first()
+    calibrated = bool(refl and refl0)
+    pixcal = _project_pixcal(acq.project, refl, refl0) if calibrated else None
+    refl_maps = _reflectance_maps(frames, refl, refl0, pixcal) if calibrated else {}
+    bands = []
+    for nm in LED_BANDS:
+        gray = frames.get(nm)
+        raw = _roi_mean(gray, contour) if gray is not None else None
+        pct = None
+        if raw is not None and calibrated:
+            pct = _roi_reflectance(gray, refl_maps.get(nm), contour)
+        bands.append({"nm": int(nm), "color": LED_COLORS[nm],
+                      "raw": round(raw, 2) if raw is not None else None, "reflectance": pct})
+    return JsonResponse({"ok": True, "calibrated": calibrated, "bands": bands})
 
 
 def _acquisition_ref_image_url(acq):
@@ -2405,6 +2638,7 @@ def annotations_list(request):
     project = _get_active_project(request)
     acquisitions = []
     all_labels = set()
+    all_notes = set()
     if project:
         for acq in project.acquisitions.all():
             ann = getattr(acq, 'annotation', None)
@@ -2415,6 +2649,9 @@ def annotations_list(request):
             image_label = ann.image_label if ann else ""
             if image_label:
                 all_labels.add(image_label)
+            image_note = ann.image_note if ann else ""
+            if image_note:
+                all_notes.add(image_note)
             acquisitions.append({
                 "id": acq.id,
                 "name": acq.name or f"Aquisição {acq.id}",
@@ -2424,6 +2661,7 @@ def annotations_list(request):
                 "n_boxes": n_boxes, "n_ellipses": n_ellipses, "n_polygons": n_polygons, "n_points": n_points,
                 "n_rois": acq.roi_measurements.count(),
                 "image_label": image_label,
+                "image_note": image_note,
             })
     total = len(acquisitions)
     annotated = sum(1 for a in acquisitions if a["annotated"])
@@ -2434,7 +2672,7 @@ def annotations_list(request):
     return render(request, "pages/annotations.html", {
         "project": project, "acquisitions": acquisitions, "total": total,
         "annotated": annotated, "progress_pct": progress_pct,
-        "all_labels": sorted(all_labels), "has_models": has_models,
+        "all_labels": sorted(all_labels), "all_notes": sorted(all_notes), "has_models": has_models,
     })
 
 
@@ -2616,9 +2854,18 @@ def export_job_download(request, job_id):
         raise Http404("Exportação ainda não está pronta")
     with _export_jobs_lock:
         _export_jobs.pop(job_id, None)
-    fh = open(job["path"], "rb")
-    os.unlink(job["path"])  # Linux: o arquivo some do disco, mas o fd aberto continua valendo
-    return FileResponse(fh, as_attachment=True, filename=job["filename"])
+    path = job["path"]
+    fh = open(path, "rb")
+    try:
+        os.unlink(path)  # Linux: o arquivo some do disco, mas o fd aberto continua valendo
+        delete_after = False
+    except PermissionError:
+        delete_after = True  # Windows nao apaga arquivo aberto: apaga depois do download
+    response = FileResponse(fh, as_attachment=True, filename=job["filename"])
+    if delete_after:
+        # roda depois do fechamento do arquivo (que o FileResponse registrou antes)
+        response._resource_closers.append(lambda: os.path.exists(path) and os.unlink(path))
+    return response
 
 
 @login_required
@@ -2673,6 +2920,21 @@ def annotation_image_label(request, acq_id):
     return JsonResponse({"ok": True, "label": ann.image_label})
 
 
+@login_required
+def annotation_image_note(request, acq_id):
+    """Observação livre da imagem (Annotation.image_note) -- filtro na lista de Annotations."""
+    if request.method != 'POST':
+        return JsonResponse({"error": "POST"}, status=405)
+    acq = _owned_acquisition(request, acq_id)
+    if not acq:
+        return JsonResponse({"ok": False, "error": "Aquisição não encontrada"}, status=404)
+    data = json.loads(request.body or "{}")
+    ann, _ = Annotation.objects.get_or_create(acquisition=acq)
+    ann.image_note = (data.get('note') or "").strip()
+    ann.save(update_fields=["image_note", "updated"])
+    return JsonResponse({"ok": True, "note": ann.image_note})
+
+
 # ── Editor de anotação ────────────────────────────────────────────────────────
 
 @login_required
@@ -2697,13 +2959,21 @@ def annotate_view(request, acq_id):
     # miniaturas das 8 bandas CRUAS (nao normalizadas) -- normalizar
     # reescala/clampa a imagem, o que pode disfarcar saturacao real do
     # sensor; a foto crua e o jeito confiavel de ver isso a olho.
-    band_thumbs = [{"nm": nm, "color": LED_COLORS[nm],
-                    "url": _spectral_url(f"{settings.MEDIA_URL}acquisitions/{acq.folder}/raw/{nm}nm.png")}
-                   for nm in LED_BANDS] if acq.folder else []
+    # miniaturas das 8 bandas: a versao CALIBRADA (calibrated/, 0-255 = 0-100% de
+    # reflectancia -- no modo do projeto, media ou pixel a pixel); cai pra crua
+    # so na banda que nao tem calibracao
+    band_thumbs = []
+    for nm in (LED_BANDS if acq.folder else []):
+        calibrated = _acquisition_has_calibrated(acq, nm)
+        sub = _acquisition_calibrated_subdir(acq) if calibrated else "raw"
+        band_thumbs.append({"nm": nm, "color": LED_COLORS[nm], "calibrated": calibrated,
+                            "url": _spectral_url(f"{settings.MEDIA_URL}acquisitions/{acq.folder}/{sub}/{nm}nm.png")})
+    thumbs_calibrated = bool(band_thumbs) and all(b["calibrated"] for b in band_thumbs)
     return render(request, "pages/annotate.html", {
         "acq": acq, "ann": ann,
         "ref_image_url": _acquisition_ref_image_url(acq),
-        "band_thumbs": band_thumbs,
+        "band_thumbs": band_thumbs, "thumbs_calibrated": thumbs_calibrated,
+        "refl_mode_label": acq.project.get_refl_mode_display() if acq.project else "",
         "prev_id": prev_id, "next_id": next_id,
         "current": idx + 1, "total": len(siblings),
         "models": models_available,
@@ -2801,6 +3071,303 @@ def export_classification(request):
         return path
     job_id = _export_job_start(request.user, "classification_annotations.json", work)
     return JsonResponse({"job": job_id})
+
+
+# ── Export de amostras (pra treinar classificação fora do Pi) ─────────────────
+# O Pi só EMPACOTA o que já existe em disco: uma pasta por imagem com as 8
+# bandas calibradas (calibrated/), o rgb.png e um anotacoes.json com os
+# contornos agrupados por amostra. Recorte, máscara, margem, tamanho etc. ficam
+# pra pipeline de classificação no PC -- gerar recortes aqui (8 bandas em float
+# por semente) dava ~10 MB por bandeja e travaria o Pi em exports grandes.
+_UNSAFE_NAME_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
+SHAPE_ORDER = ("polygon", "ellipse", "box", "point")   # prioridade da label da AMOSTRA
+
+# notebook que vai junto no zip: monta o DataFrame (1 linha por amostra) a partir
+# das pastas + anotacoes.json -- ponto de partida da analise/treino no PC
+SAMPLES_NOTEBOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "export_kit", "analise_amostras.ipynb")
+
+SAMPLES_README = """Amostras -- SpectralCrops
+=========================
+
+anotacoes.json             ÍNDICE ÚNICO de tudo: projetos, imagens, caminhos e amostras.
+analise_amostras.ipynb     abra no Jupyter/VS Code dentro desta pasta: monta um DataFrame
+                           com uma linha por amostra (label, bandeja, projeto, observação,
+                           contornos e a reflectância média em cada banda) e salva
+                           amostras_dataframe.csv. Precisa de: numpy, pandas,
+                           opencv-python, matplotlib.
+<projeto>/<imagem>/        uma pasta por imagem (bandeja), agrupadas por projeto:
+  365nm.png ... 850nm.png  as 8 bandas CALIBRADAS com as referências 100%/0%, PNG 1 canal
+                           (cinza) 8 bits: reflectância = valor do pixel / 255
+                           (0 = 0%, 255 = 100%). Cada pixel é cortado em 100%.
+  <nm>nm_cru.png           só quando uma banda NÃO tem calibração confiável no projeto:
+                           a foto crua (8 bits) no lugar dela.
+  rgb.png                  composição 660/520/460 nm, só pra visualização.
+
+anotacoes.json -- todos os caminhos são RELATIVOS a esta pasta:
+  exportado_em, bandas_nm, reflectancia_escala (255)
+  projetos: {{id: nome, modo_calibracao ("mean" = média da região | "pixel" = pixel a
+             pixel), observacao_parametrizacao}}
+  imagens: lista --
+    imagem, aquisicao_id, projeto_id, capturada_em, rotulo_imagem, observacao,
+    largura, altura
+    pasta, rgb, bandas {{nm: caminho}}
+    calibracao: "captura" (calibrada na captura) ou "atual" (aquisição antiga,
+                calibrada agora com a calibração atual do projeto)
+    bandas_calibradas / bandas_cruas: quais bandas (nm) saíram em reflectância e
+                                      quais foram cruas por falta de calibração
+    amostras: lista, numerada em linhas (de cima pra baixo, esquerda pra direita).
+      Cada amostra junta os contornos que caem na mesma semente (o centro de um
+      dentro do outro): ex. o box, o ponto e o polígono da semente 1.
+      label: da amostra = label do 1º contorno com label (polígono > elipse >
+             box > ponto); sem nenhuma, o rótulo da imagem; sem os dois, "".
+      contornos: um por forma desenhada --
+        tipo: polygon | ellipse | box | point
+        indice: número dessa forma na lista do Annotate (1, 2, ...)
+        label + label_origem: "amostra" (categoria da forma) ou "imagem" (rótulo 🏷)
+        polygon/ellipse: pontos [[x, y], ...]  -> máscara: cv2.fillPoly
+        box: [x1, y1, x2, y2]                  point: [x, y]
+
+Coordenadas em pixels da imagem (iguais em todas as bandas).
+
+Treino x validação: divida por BANDEJA (aquisicao_id), não por amostra -- sementes
+da mesma bandeja compartilham luz, lote e posição, e cair dos dois lados infla a
+acurácia de validação.
+
+Exportado: {n_images} imagem(ns) de {n_projects} projeto(s), {n_samples} amostra(s),
+{n_contours} contorno(s).
+Labels das amostras:
+{counts}
+"""
+
+
+def _safe_name(text, fallback):
+    text = _UNSAFE_NAME_RE.sub("_", (text or "").strip()).strip(" .")
+    return text or fallback
+
+
+def _group_samples(ann):
+    """Agrupa os contornos que caem na mesma semente: dois contornos são da
+    mesma amostra quando o centro de um está dentro do outro (box, elipse e
+    polígono); um ponto entra na menor forma que o contém. Só geometria
+    vetorial (pointPolygonTest), sem rasterizar nada -- barato no Pi."""
+    img_label = (ann.image_label or "").strip()
+    shapes = []
+
+    def add(kind, items, labels, to_contour):
+        labels = list(labels or [])
+        for i, geom in enumerate(items or []):
+            lbl = (labels[i] if i < len(labels) else "") or ""
+            lbl = lbl.strip()
+            c = to_contour(geom)
+            if c is None:
+                continue
+            shapes.append({"kind": kind, "idx": i, "geom": geom, "label": lbl, "contour": c})
+
+    def poly_c(pts):
+        pts = _closed_polygon(pts)
+        return np.array(pts, dtype=np.float32) if pts else None
+
+    def box_c(b):
+        x1, y1, x2, y2 = (float(v) for v in b)
+        return np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]], dtype=np.float32)
+
+    add("polygon", ann.polygons, ann.poly_labels, poly_c)
+    add("ellipse", ann.ellipses, ann.ellipse_labels, poly_c)
+    add("box", ann.boxes, ann.labels, box_c)
+    add("point", ann.points, ann.point_labels, lambda p: np.array([[float(p[0]), float(p[1])]], dtype=np.float32))
+
+    for s in shapes:
+        c = s["contour"]
+        m = cv2.moments(c) if len(c) >= 3 else None
+        s["center"] = ((m["m10"] / m["m00"], m["m01"] / m["m00"]) if m and m["m00"]
+                       else (float(c[:, 0].mean()), float(c[:, 1].mean())))
+        s["area"] = abs(cv2.contourArea(c)) if len(c) >= 3 else 0.0
+
+    parent = list(range(len(shapes)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def inside(pt, s):
+        return len(s["contour"]) >= 3 and cv2.pointPolygonTest(s["contour"], pt, False) >= 0
+
+    areas = [i for i, s in enumerate(shapes) if s["kind"] != "point"]
+    for a in areas:
+        for b in areas:
+            if a < b and (inside(shapes[a]["center"], shapes[b]) or inside(shapes[b]["center"], shapes[a])):
+                parent[find(a)] = find(b)
+    for i, s in enumerate(shapes):
+        if s["kind"] == "point":
+            hosts = [j for j in areas if inside(s["center"], shapes[j])]
+            if hosts:
+                parent[find(i)] = find(min(hosts, key=lambda j: shapes[j]["area"]))
+
+    groups = {}
+    for i in range(len(shapes)):
+        groups.setdefault(find(i), []).append(shapes[i])
+    groups = list(groups.values())
+    if not groups:
+        return []
+
+    # numeração em linhas (cima -> baixo, esquerda -> direita), pelo centro do grupo
+    def gcenter(g):
+        main = max(g, key=lambda s: s["area"])
+        return main["center"]
+
+    def gheight(g):
+        ys = np.concatenate([s["contour"][:, 1] for s in g])
+        return float(ys.max() - ys.min())
+
+    tol = max(10.0, sorted(gheight(g) for g in groups)[len(groups) // 2] / 2)
+    groups.sort(key=lambda g: gcenter(g)[1])
+    rows, current = [], []
+    for g in groups:
+        if current and abs(gcenter(g)[1] - gcenter(current[0])[1]) > tol:
+            rows.append(current)
+            current = []
+        current.append(g)
+    rows.append(current)
+    ordered = [g for row in rows for g in sorted(row, key=lambda g: gcenter(g)[0])]
+
+    samples = []
+    for n, g in enumerate(ordered, start=1):
+        g.sort(key=lambda s: (SHAPE_ORDER.index(s["kind"]), s["idx"]))
+        own = next((s["label"] for s in g if s["label"]), "")
+        contours = []
+        for s in g:
+            geom = s["geom"]
+            if s["kind"] in ("polygon", "ellipse"):
+                geom = [[int(round(x)), int(round(y))] for x, y in _closed_polygon(geom)]
+            elif s["kind"] == "box":
+                geom = [int(round(v)) for v in geom]
+            else:
+                geom = [int(round(geom[0])), int(round(geom[1]))]
+            contours.append({"tipo": s["kind"], "indice": s["idx"] + 1,
+                             "label": s["label"] or img_label,
+                             "label_origem": "amostra" if s["label"] else ("imagem" if img_label else None),
+                             ("pontos" if s["kind"] in ("polygon", "ellipse") else
+                              "caixa" if s["kind"] == "box" else "ponto"): geom})
+        samples.append({"amostra": n, "label": own or img_label,
+                        "label_origem": "amostra" if own else ("imagem" if img_label else None),
+                        "contornos": contours})
+    return samples
+
+
+@login_required
+def export_samples(request):
+    """Exporta as imagens selecionadas pra treinar classificação: uma pasta por
+    imagem (agrupadas por projeto) com as 8 bandas calibradas + rgb.png, e UM
+    anotacoes.json na raiz indexando tudo (projetos, imagens, caminhos relativos,
+    observações e as amostras com contornos e labels). Só copia arquivos que já
+    existem e monta o JSON -- o recorte fica pra pipeline no PC. Ver SAMPLES_README."""
+    if request.method != 'POST':
+        return JsonResponse({"error": "POST"}, status=405)
+    ids = (json.loads(request.body or "{}")).get('ids') or []
+    anns = [a for a in Annotation.objects.filter(acquisition_id__in=ids,
+                                                 acquisition__project__in=_visible_projects(request))
+            .select_related('acquisition', 'acquisition__project').order_by('acquisition__created')
+            if a.acquisition.folder and (a.polygons or a.ellipses or a.boxes or a.points)]
+    if not anns:
+        return JsonResponse({"error": "Nenhuma das imagens selecionadas tem anotação."}, status=400)
+    # calibração, projetos e agrupamento aqui (thread do request): o job em segundo plano só lê arquivos
+    calib, projects = {}, {}
+    for a in anns:
+        proj = a.acquisition.project
+        if proj.id not in calib:
+            refl = ReflectanceCalibration.objects.filter(project=proj).first()
+            refl0 = ReflectanceZeroCalibration.objects.filter(project=proj).first()
+            calib[proj.id] = (refl, refl0, _project_pixcal(proj, refl, refl0)) if (refl and refl0) else None
+            projects[proj.id] = {"nome": proj.name, "modo_calibracao": proj.refl_mode,
+                                 "observacao_parametrizacao": proj.param_note or "",
+                                 "_pasta": _safe_name(proj.name, f"projeto_{proj.id}")}
+    jobs, used = [], set()
+    for a in anns:
+        acq = a.acquisition
+        folder = f"{projects[acq.project_id]['_pasta']}/{_safe_name(acq.name, f'acq_{acq.id}')}"
+        if folder in used:
+            folder = f"{folder}_{acq.id}"
+        used.add(folder)
+        jobs.append((acq, folder, a.image_label or "", a.image_note or "", _group_samples(a), calib.get(acq.project_id)))
+
+    def work(report):
+        counts, n_samples, n_contours, images = {}, 0, 0, []
+
+        def write(fh):
+            nonlocal n_samples, n_contours
+            with zipfile.ZipFile(fh, "w", zipfile.ZIP_STORED) as zf:   # PNG já é comprimido: sem gastar CPU do Pi
+                for k, (acq, folder, img_label, note, samples, cal) in enumerate(jobs):
+                    base = os.path.join(settings.MEDIA_ROOT, "acquisitions", acq.folder)
+                    # Bandas calibradas = a calibrated/ salva na captura (0-255 = 0-100%,
+                    # cada pixel cortado em 100%: o branco de referência é o teto).
+                    # Sempre 1 canal cinza: a câmera grava em BGR (canais levemente
+                    # diferentes) e o app usa o cinza. Aquisição antiga sem calibrated/:
+                    # calcula da foto crua com a calibração atual do projeto.
+                    bands, bands_ok, bands_raw, size = {}, [], [], None
+                    calib_source = "captura"
+                    for nm in LED_BANDS:
+                        cal_path = _acquisition_calibrated_path(acq, nm)
+                        norm = cv2.imread(cal_path, cv2.IMREAD_GRAYSCALE) if cal_path else None
+                        if norm is None:
+                            raw = cv2.imread(os.path.join(base, "raw", f"{nm}nm.png"), cv2.IMREAD_GRAYSCALE)
+                            if raw is None:
+                                continue
+                            norm = (_normalize_band(raw, nm, cal[0], cal[1], cal[2])
+                                    if cal and cal[1].means.get(nm) is not None else None)
+                            if norm is None:   # sem calibração confiável: vai a foto crua
+                                bands[nm] = f"{folder}/{nm}nm_cru.png"
+                                zf.writestr(bands[nm], _png_bytes(raw))
+                                bands_raw.append(int(nm))
+                                size = size or (raw.shape[1], raw.shape[0])
+                                continue
+                            calib_source = "atual"
+                        bands[nm] = f"{folder}/{nm}nm.png"
+                        zf.writestr(bands[nm], _png_bytes(norm))
+                        bands_ok.append(int(nm))
+                        size = size or (norm.shape[1], norm.shape[0])
+                    rgb_path = _acquisition_rgb_path(acq)
+                    if rgb_path:
+                        zf.write(rgb_path, f"{folder}/rgb.png")
+                    images.append({
+                        "imagem": acq.name or f"acq_{acq.id}", "aquisicao_id": acq.id, "projeto_id": acq.project_id,
+                        "capturada_em": acq.created.strftime("%Y-%m-%d %H:%M:%S"),
+                        "rotulo_imagem": img_label, "observacao": note,
+                        "largura": size[0] if size else None, "altura": size[1] if size else None,
+                        "pasta": folder, "rgb": f"{folder}/rgb.png" if rgb_path else None, "bandas": bands,
+                        "calibracao": calib_source if bands_ok else None,
+                        "bandas_calibradas": bands_ok, "bandas_cruas": bands_raw,
+                        "amostras": samples})
+                    for smp in samples:
+                        counts[smp["label"] or "(sem label)"] = counts.get(smp["label"] or "(sem label)", 0) + 1
+                        n_contours += len(smp["contornos"])
+                    n_samples += len(samples)
+                    report(0.95 * (k + 1) / len(jobs))
+                index = {"exportado_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                         "bandas_nm": [int(nm) for nm in LED_BANDS], "reflectancia_escala": 255,
+                         "projetos": {str(pid): {k: v for k, v in p.items() if not k.startswith("_")}
+                                      for pid, p in projects.items()},
+                         "imagens": images}
+                zf.writestr("anotacoes.json", json.dumps(index, ensure_ascii=False, indent=2))
+                count_lines = "\n".join(f"  {c}: {n}" for c, n in sorted(counts.items()))
+                zf.writestr("LEIA-ME.txt", SAMPLES_README.format(
+                    n_images=len(jobs), n_projects=len(projects), n_samples=n_samples,
+                    n_contours=n_contours, counts=count_lines))
+                if os.path.exists(SAMPLES_NOTEBOOK):
+                    zf.write(SAMPLES_NOTEBOOK, os.path.basename(SAMPLES_NOTEBOOK))
+        return _write_temp_file(".zip", write)
+
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    job_id = _export_job_start(request.user, f"amostras_{stamp}.zip", work)
+    return JsonResponse({"job": job_id})
+
+
+def _png_bytes(img):
+    ok, buf = cv2.imencode(".png", img)
+    if not ok:
+        raise ValueError("falha ao codificar PNG")
+    return buf.tobytes()
 
 
 # ── Segmentação/deteção/classificação automática ──────────────────────────────
@@ -2936,6 +3503,193 @@ def auto_polygon_from_boxes(request, acq_id):
             new_polys.append(pts)
             new_labels.append(lbl)
     return JsonResponse({"polygons": new_polys, "poly_labels": new_labels, "count": len(new_polys)})
+
+
+# ── SAM (Spectral Angle Mapper) ────────────────────────────────────────────────
+# Mesmo pipeline do "SAM Orgânico" do notebook de comparação de métodos
+# (Projeto Spectronon e Resonon / 002 - Comparação Final / main.ipynb), com o
+# espectro de cada pixel = as 8 bandas dos LEDs em reflectância. A referência é
+# a média dos pixels dentro dos polígonos/elipses que o usuário já desenhou.
+# Ajustes medidos em 16 aquisições de soja anotadas à mão (400 sementes, 1
+# polígono de referência por vez): o pipeline puro do notebook acertava 358 e
+# dava 62 falsos positivos; com os ajustes abaixo, 381 e 3.
+#  - SAM_MIN_BRIGHTNESS: pixel escuro demais (fundo fora da bandeja) tem
+#    "espectro" quase só ruído e ângulo aleatório -- fica de fora antes do Otsu.
+#  - watershed só nas manchas grandes demais pra ser uma semente (SAM_SPLIT_AREA),
+#    sobre a distância até a borda; o do notebook (sobre a imagem colorida)
+#    picotava sementes com manchas escuras.
+#  - SAM_MIN_SOLIDITY descarta faixas finas da borda da bandeja.
+SAM_MIN_BRIGHTNESS = 0.7   # norma do espectro do pixel >= 70% da norma da referência
+SAM_SPLIT_AREA = 1.6       # mancha > 1,6x a área da referência: tenta separar sementes encostadas
+SAM_AREA_RANGE = (0.3, 2.5)  # área aceita, em múltiplos da área média da referência
+SAM_MIN_SOLIDITY = 0.75    # área / área do envoltório convexo
+
+
+def _reflectance_cube(acq, project):
+    """(H, W, n_bandas) float32 em reflectância 0-1, a partir das fotos CRUAS
+    (mesmo motivo de roi_measurement_compute: calibrated/ já é calibrada). None
+    sem calibração 100%/0% ou sem fotos. Bandas com faixa branco-escuro curta
+    demais (MIN_REFLECTANCE_RANGE) ficam de fora."""
+    refl = ReflectanceCalibration.objects.filter(project=project).first()
+    refl0 = ReflectanceZeroCalibration.objects.filter(project=project).first()
+    if not (refl and refl0 and acq.folder):
+        return None
+    pixcal = _project_pixcal(project, refl, refl0)
+    chans = []
+    for nm in LED_BANDS:
+        white, dark = refl.means.get(nm), refl0.means.get(nm)
+        if white is None or dark is None or (white - dark) < MIN_REFLECTANCE_RANGE:
+            continue
+        path = os.path.join(settings.MEDIA_ROOT, "acquisitions", acq.folder, "raw", f"{nm}nm.png")
+        gray = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        if gray is None:
+            continue
+        if pixcal:   # modo pixel a pixel: pixel sem calibracao confiavel (NaN) vira 0
+            rmap = _reflectance_map(gray, nm, pixcal)
+            if rmap is not None:
+                chans.append(np.nan_to_num(rmap, nan=0.0))
+        else:
+            chans.append((gray.astype(np.float32) - dark) / (white - dark))
+    if len(chans) < 3 or len({c.shape for c in chans}) != 1:
+        return None
+    # SEM o teto de 100% de proposito: o SAM so acha CONTORNOS (os numeros da
+    # semente saem depois, no Calcular ROIs, ja com o teto). Testado: com o teto,
+    # o espectro achatado em 730 nm derrubava o SAM de 383 pra 370 de 400 sementes.
+    return np.stack(chans, axis=2)
+
+
+def _otsu_on_values(values):
+    """Limiar de Otsu sobre valores contínuos (escala até o percentil 99, como no notebook)."""
+    vmax = float(np.percentile(values, 99)) + 1e-9
+    u8 = np.clip(values / vmax * 255, 0, 255).astype(np.uint8).reshape(-1, 1)
+    t, _ = cv2.threshold(u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return t / 255.0 * vmax
+
+
+def _split_touching(contour, ref_area):
+    """Separa uma mancha grande (sementes encostadas) com watershed sobre a
+    distância até a borda, semeado nos picos dessa distância."""
+    min_dist = max(3, int(ref_area ** 0.5 * 0.45))
+    x, y, bw, bh = cv2.boundingRect(contour)
+    comp = np.zeros((bh + 2, bw + 2), np.uint8)
+    cv2.drawContours(comp, [contour - [x - 1, y - 1]], -1, 255, -1)
+    dist = cv2.distanceTransform(comp, cv2.DIST_L2, 5)
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * min_dist + 1, 2 * min_dist + 1))
+    cand = np.argwhere((dist == cv2.dilate(dist, k)) & (comp > 0) & (dist > 0.3 * min_dist))
+    peaks = []
+    for py, px in sorted(cand.tolist(), key=lambda p: -dist[p[0], p[1]]):
+        if all((px - qx) ** 2 + (py - qy) ** 2 >= min_dist ** 2 for qx, qy in peaks):
+            peaks.append((px, py))
+    if len(peaks) < 2:
+        return [contour]
+    markers = np.zeros(comp.shape, np.int32)
+    markers[comp == 0] = 1
+    for i, (px, py) in enumerate(peaks):
+        cv2.circle(markers, (px, py), 2, i + 2, -1)
+    relief = (255 - cv2.normalize(dist, None, 0, 255, cv2.NORM_MINMAX)).astype(np.uint8)
+    markers = cv2.watershed(cv2.cvtColor(relief, cv2.COLOR_GRAY2BGR), markers)
+    parts = []
+    for i in range(len(peaks)):
+        reg = ((markers == i + 2) & (comp > 0)).astype(np.uint8) * 255
+        reg = cv2.morphologyEx(reg, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+        cs, _ = cv2.findContours(reg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if cs:
+            parts.append(max(cs, key=cv2.contourArea) + [x - 1, y - 1])
+    return parts
+
+
+def _sort_rows(contours):
+    """Ordena em linhas (de cima pra baixo) e, dentro da linha, da esquerda pra direita."""
+    if not contours:
+        return []
+    heights = sorted(cv2.boundingRect(c)[3] for c in contours)
+    tol = max(10, heights[len(heights) // 2] // 2)
+    rows, current = [], []
+    for c in sorted(contours, key=lambda c: cv2.boundingRect(c)[1]):
+        if not current or abs(cv2.boundingRect(c)[1] - cv2.boundingRect(current[0])[1]) <= tol:
+            current.append(c)
+        else:
+            rows.append(current)
+            current = [c]
+    rows.append(current)
+    return [c for row in rows for c in sorted(row, key=lambda c: cv2.boundingRect(c)[0])]
+
+
+@login_required
+def auto_segment_sam(request, acq_id):
+    """Segmentação por SAM a partir de um ou mais contornos de referência
+    (polígonos/elipses já desenhados). Devolve só os contornos NOVOS -- o que
+    cair em cima de uma forma já existente é descartado, então a referência
+    desenhada à mão fica como está e rodar de novo não duplica nada."""
+    if request.method != 'POST':
+        return JsonResponse({"error": "POST"}, status=405)
+    acq = _owned_acquisition(request, acq_id)
+    if not acq:
+        return JsonResponse({"error": "imagem não encontrada"}, status=404)
+    data = json.loads(request.body or "{}")
+    refs = [p for p in (data.get('polygons') or []) + (data.get('ellipses') or []) if len(p) >= 3]
+    if not refs:
+        return JsonResponse({"error": "Desenhe pelo menos um polígono ou elipse fechado em volta de uma "
+                                      "amostra pra servir de referência."}, status=400)
+    cube = _reflectance_cube(acq, acq.project)
+    if cube is None:
+        return JsonResponse({"error": "O SAM usa a reflectância das 8 bandas: precisa da calibração de "
+                                      "reflectância 100% e 0% do projeto e das fotos cruas da aquisição."}, status=409)
+    try:
+        h, w = cube.shape[:2]
+        ref_polys = [np.array(p, dtype=np.int32) for p in refs]
+        ref_mask = np.zeros((h, w), np.uint8)
+        cv2.fillPoly(ref_mask, ref_polys, 255)
+        ref_pixels = cube[ref_mask > 0]
+        if len(ref_pixels) < 10:
+            return JsonResponse({"error": "A referência ficou pequena demais (ou fora da imagem)."}, status=400)
+        ref = ref_pixels.mean(axis=0)
+        ref_area = float(np.mean([abs(cv2.contourArea(p)) for p in ref_polys]))
+
+        ref_norm = float(np.linalg.norm(ref)) + 1e-12
+        px_norm = np.linalg.norm(cube, axis=2)
+        angles = np.degrees(np.arccos(np.clip((cube @ ref) / (px_norm * ref_norm + 1e-12), -1, 1)))
+        bright = px_norm > SAM_MIN_BRIGHTNESS * ref_norm
+        if bright.sum() < 100:
+            return JsonResponse({"polygons": [], "count": 0, "threshold_deg": None})
+        threshold = _otsu_on_values(angles[bright])
+
+        mask = (bright & (angles < threshold)).astype(np.uint8) * 255
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=2)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8), iterations=2)
+        blobs, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)  # externo = sem buracos
+
+        lo, hi = SAM_AREA_RANGE[0] * ref_area, SAM_AREA_RANGE[1] * ref_area
+        found = []
+        for blob in blobs:
+            area = cv2.contourArea(blob)
+            if area < lo:
+                continue
+            for c in (_split_touching(blob, ref_area) if area > SAM_SPLIT_AREA * ref_area else [blob]):
+                a = cv2.contourArea(c)
+                hull_a = cv2.contourArea(cv2.convexHull(c))
+                if lo < a < hi and hull_a and a / hull_a >= SAM_MIN_SOLIDITY:
+                    found.append(c)
+
+        def overlaps_existing(c):
+            m = cv2.moments(c)
+            if not m["m00"]:
+                return True
+            cx, cy = m["m10"] / m["m00"], m["m01"] / m["m00"]
+            return any(cv2.pointPolygonTest(p, (cx, cy), False) >= 0 for p in ref_polys)
+
+        polygons = []
+        for c in _sort_rows([c for c in found if not overlaps_existing(c)]):
+            approx = cv2.approxPolyDP(c, 0.008 * cv2.arcLength(c, True), True).reshape(-1, 2)
+            if len(approx) < 8:
+                raw = c.reshape(-1, 2)
+                approx = raw[::max(1, len(raw) // 40)]
+            if len(approx) >= 4:
+                polygons.append(approx.tolist())
+        return JsonResponse({"polygons": polygons, "count": len(polygons),
+                             "threshold_deg": round(float(threshold), 2), "n_refs": len(refs)})
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
 
 
 @login_required
@@ -3362,7 +4116,8 @@ def ml_classifier_train(request):
 
 
 YOLO_KIT_DIR = Path(__file__).resolve().parent / "yolo_kit"
-YOLO_KIT_FILES = ["LEIA-ME.txt", "requirements.txt", "yolo_trainer_gui.py", "iniciar_treino.bat", "iniciar_treino.sh"]
+YOLO_KIT_FILES = ["LEIA-ME.txt", "requirements.txt", "yolo_trainer_gui.py", "iniciar_treino.bat", "iniciar_treino.sh",
+                  "logo.png", "icon.png"]
 
 
 @login_required

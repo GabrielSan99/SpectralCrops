@@ -68,6 +68,10 @@ class ReflectanceCalibration(models.Model):
     bbox_w = models.PositiveIntegerField(default=0)
     bbox_h = models.PositiveIntegerField(default=0)
     image = models.ImageField(upload_to='reflectance_parametrization/', blank=True)  # banda de referencia usada na selecao
+    # pasta (em projects/reflectance_parametrization/) com a foto inteira de cada banda
+    # dessa calibracao -- o modo pixel a pixel (Project.refl_mode) le dali. Vazio em
+    # calibracoes antigas, de antes desse campo existir.
+    frames_dir = models.CharField(max_length=200, blank=True, default="")
     # auto_now (NAO auto_now_add) -- ver comentario em GeometricCalibration.
     # Aqui importa ainda mais: e o timestamp que views._reflectance_stale usa
     # pra saber se essa calibracao ainda vale (tem que ficar DEPOIS da ultima
@@ -96,6 +100,7 @@ class ReflectanceZeroCalibration(models.Model):
                                    related_name='reflectance_zero_calibration')
     means = models.JSONField(default=dict)   # {"365": 12.3, ..., "850": 8.1}
     image = models.ImageField(upload_to='reflectance_parametrization/', blank=True)
+    frames_dir = models.CharField(max_length=200, blank=True, default="")  # ver ReflectanceCalibration.frames_dir
     # auto_now (NAO auto_now_add) -- mesmo motivo de ReflectanceCalibration.created.
     created = models.DateTimeField(auto_now=True)
 
@@ -127,6 +132,15 @@ class Project(models.Model):
     #  "n_samples":, "trained_at": iso, "train_seconds":}
     model_cls_info = models.JSONField(default=dict, blank=True)
     param_note = models.TextField(blank=True, default="")  # observacao livre da parametrizacao (uma por projeto)
+
+    class ReflectanceMode(models.TextChoices):
+        # "mean": UM valor de branco/escuro por banda (media da regiao selecionada) -- o modo original.
+        # "pixel": cada pixel comparado com o branco/escuro NAQUELE ponto (fotos inteiras da
+        #          calibracao) -- corrige iluminacao desigual (manchas dos LEDs, vinheta).
+        MEAN = "mean", "Média da região"
+        PIXEL = "pixel", "Pixel a pixel"
+
+    refl_mode = models.CharField(max_length=10, choices=ReflectanceMode.choices, default=ReflectanceMode.MEAN)
     created = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -147,7 +161,7 @@ class DataAcquisition(models.Model):
     momento do SALVAMENTO, nao da captura. on_delete=CASCADE: apagar o
     projeto apaga a aquisicao (e Annotation/ROIMeasurement ligados a ela)
     junto -- o signal post_delete em signals.py remove a pasta de imagens
-    (raw/normalized/rgb) do disco tambem, pra nao sobrar arquivo orfao."""
+    (raw/calibrated/rgb) do disco tambem, pra nao sobrar arquivo orfao."""
     project = models.ForeignKey(Project, null=True, blank=True, on_delete=models.CASCADE,
                                 related_name='acquisitions')
     name = models.CharField(max_length=200, blank=True)
@@ -254,6 +268,9 @@ class Annotation(models.Model):
     points = models.JSONField(default=list)          # [[x,y], ...]
     point_labels = models.JSONField(default=list)
     image_label = models.CharField(max_length=200, blank=True)  # classificacao da amostra inteira
+    # Observacao livre da imagem (lote, safra, condicao do ensaio...) -- usada
+    # como filtro na lista de Annotations e levada pro CSV do export de amostras.
+    image_note = models.TextField(blank=True, default="")
     updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):

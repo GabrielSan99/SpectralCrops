@@ -88,6 +88,24 @@
     .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
             padding: 1.3rem 1.4rem; box-shadow: 0 1px 2px rgba(16,24,40,0.04); }
     .card.wide { grid-column: 1 / -1; }
+
+    /* Modo de calibracao: logo abaixo das calibracoes 100% e 0% (2 primeiras colunas do .row3) */
+    .card.refl-mode-card { grid-column: 1 / 3; }
+    .refl-mode-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .mode-opt { font-size: 0.88rem; font-weight: 600; color: var(--muted2); cursor: pointer; user-select: none;
+                transition: color .15s; }
+    .mode-opt.on { color: var(--ink); }
+    .mode-switch { position: relative; width: 50px; height: 28px; border-radius: 999px; border: none; padding: 0;
+                   background: var(--line); cursor: pointer; transition: background .2s; flex-shrink: 0; }
+    .mode-switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px;
+                          border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(16,24,40,.3);
+                          transition: transform .2s; }
+    .mode-switch[aria-checked="true"] { background: var(--blue); }
+    .mode-switch[aria-checked="true"]::after { transform: translateX(22px); }
+    .mode-switch:disabled { opacity: .45; cursor: not-allowed; }
+    .mode-desc { font-size: 0.8rem; color: var(--muted2); line-height: 1.5; margin-top: 0.7rem; }
+    .mode-warn { font-size: 0.8rem; color: #b45309; margin-top: 0.5rem; }
+    @media (max-width: 900px) { .card.refl-mode-card { grid-column: 1 / -1; } }
     .card h2 { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.1em;
                text-transform: uppercase; color: var(--muted2); margin-bottom: 1.1rem; }
     /* botao de acao logo abaixo da imagem reservada (calibracoes + stream) */
@@ -577,6 +595,20 @@
           {% if cal %}{{ cal.qr_points|json_script:"geo-points-data" }}{% endif %}
         </div>
 
+        <!-- Modo de calibracao da reflectancia (Project.refl_mode) -->
+        <div class="card refl-mode-card">
+          <h2>Modo de calibração</h2>
+          <div class="refl-mode-row">
+            <span class="mode-opt {% if refl_mode != 'pixel' %}on{% endif %}" id="mode-opt-mean" onclick="setReflMode('mean')">Média da região</span>
+            <button class="mode-switch" id="refl-mode-switch" role="switch" aria-label="Calibração pixel a pixel"
+                    aria-checked="{% if refl_mode == 'pixel' %}true{% else %}false{% endif %}"
+                    onclick="setReflMode(this.getAttribute('aria-checked') === 'true' ? 'mean' : 'pixel')"></button>
+            <span class="mode-opt {% if refl_mode == 'pixel' %}on{% endif %}" id="mode-opt-pixel" onclick="setReflMode('pixel')">Pixel a pixel</span>
+          </div>
+          <p class="mode-desc" id="refl-mode-desc"></p>
+          {% if not pixel_cal_ok %}<p class="mode-warn">Pixel a pixel indisponível: as fotos inteiras dessa calibração não estão guardadas (calibração anterior a essa opção). Refaça as calibrações 100% e 0% pra habilitar.</p>{% endif %}
+        </div>
+
         </fieldset>
       </div><!-- /row3 -->
 
@@ -604,12 +636,41 @@ const URLS = {
   reflCapture: "{% url 'param_reflectance_capture' %}",
   reflCompute: "{% url 'param_reflectance_compute' %}",
   reflZero: "{% url 'param_reflectance_zero' %}",
+  reflMode: "{% url 'param_refl_mode' %}",
   noteSave: "{% url 'param_note_save' %}",
   save:     "{% url 'param_save' %}",
   streamStop: "{% url 'video_feed_stop' %}",
   camSave:  "{% url 'param_camera_save' %}",
   camReset: "{% url 'param_camera_reset' %}",
 };
+/* ── Modo de calibração da reflectância ── */
+const REFL_MODE_DESC = {
+  mean: 'Um valor de branco e um de escuro por banda: a média da região selecionada na calibração 100%. Supõe que a luz é igual em toda a área.',
+  pixel: 'Cada pixel é comparado com o branco e o escuro naquele mesmo ponto (fotos inteiras da calibração). Corrige as manchas dos LEDs e o escurecimento das bordas — exige que a placa branca cubra toda a área analisada.',
+};
+const PIXEL_CAL_OK = {{ pixel_cal_ok|yesno:"true,false" }};
+function paintReflMode(mode) {
+  document.getElementById('refl-mode-switch').setAttribute('aria-checked', mode === 'pixel' ? 'true' : 'false');
+  document.getElementById('mode-opt-mean').classList.toggle('on', mode !== 'pixel');
+  document.getElementById('mode-opt-pixel').classList.toggle('on', mode === 'pixel');
+  document.getElementById('refl-mode-desc').textContent = REFL_MODE_DESC[mode === 'pixel' ? 'pixel' : 'mean'];
+}
+let reflMode = '{{ refl_mode|default:"mean" }}';
+async function setReflMode(mode) {
+  const sw = document.getElementById('refl-mode-switch');
+  if (sw.matches(':disabled') || mode === reflMode) return;   // :disabled pega o fieldset travado
+  if (mode === 'pixel' && !PIXEL_CAL_OK) { toast('Refaça as calibrações 100% e 0% pra usar o modo pixel a pixel.'); return; }
+  try {
+    const r = await fetch(URLS.reflMode, { method: 'POST',
+      headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) });
+    const d = await r.json();
+    if (!d.ok) { toast(d.error || 'Erro ao mudar o modo de calibração'); return; }
+    reflMode = d.mode; paintReflMode(reflMode);
+    toast(reflMode === 'pixel' ? 'Calibração pixel a pixel ✓' : 'Calibração pela média da região ✓');
+  } catch (e) { toast('Erro ao mudar o modo de calibração'); }
+}
+document.addEventListener('DOMContentLoaded', () => paintReflMode(reflMode));
+
 function api(url, data) {
   return fetch(url, { method: 'POST', headers: { 'X-CSRFToken': CSRF },
     body: new URLSearchParams(data || {}) }).then(r => r.json());

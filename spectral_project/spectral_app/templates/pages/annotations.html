@@ -124,6 +124,15 @@
     }
     .card-label:hover { border-color: var(--blue); color: var(--blue); }
     .card-label.has-label { border-style: solid; border-color: var(--line); color: var(--ink); background: var(--panel2); }
+    .card-note {
+      display: block; margin-top: 5px; font-size: .72rem; color: var(--muted); cursor: pointer;
+      padding: 2px 6px; border-radius: 4px; border: 1px dashed var(--line); line-height: 1.35;
+      overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      transition: border-color .15s, color .15s; word-break: break-word;
+    }
+    .card-note:hover { border-color: var(--blue); color: var(--blue); }
+    .card-note.has-note { border-style: solid; color: var(--ink); background: var(--panel2); }
+    .note-input { resize: vertical; min-height: 44px; margin-top: 5px; display: block; }
     .label-input {
       background: var(--panel); border: 1px solid var(--blue); color: var(--ink);
       padding: 2px 6px; border-radius: 4px; font-size: .72rem; width: 100%; outline: none; font-family: inherit;
@@ -191,7 +200,7 @@
         <span class="opt-icon">▢</span><span class="opt-label">Detecção</span>
         <span class="opt-sub" id="modal-box-count"></span>
       </button>
-      <button class="modal-opt" id="btn-cls" onclick="doExport('cls')">
+      <button class="modal-opt" id="btn-cls" onclick="doExport('cls')" title="Uma pasta por imagem: as 8 bandas calibradas (calibrated, 0-255 = 0-100%) + rgb.png + anotacoes.json com todos os contornos agrupados por amostra e a label de cada um (a da forma ou, sem ela, o rótulo 🏷 da imagem). O recorte fica pra pipeline de classificação.">
         <span class="opt-icon">🏷</span><span class="opt-label">Classificação</span>
         <span class="opt-sub" id="modal-cls-count"></span>
       </button>
@@ -220,7 +229,7 @@
 
 <!-- ── Toolbar ── -->
 <div class="toolbar">
-  <input type="search" id="search" placeholder="Buscar amostra..." oninput="filterCards()">
+  <input type="search" id="search" placeholder="Buscar nome ou observação..." oninput="filterCards()">
   <select id="filter-status" onchange="filterCards()">
     <option value="all">Todas</option>
     <option value="done">Anotadas</option>
@@ -233,6 +242,10 @@
   <select id="filter-label" onchange="filterCards()">
     <option value="">Todos os labels</option>
     {% for lbl in all_labels %}<option value="{{ lbl }}">{{ lbl }}</option>{% endfor %}
+  </select>
+  <select id="filter-note" onchange="filterCards()" title="Filtrar pela observação da imagem">
+    <option value="">Todas as observações</option>
+    {% for note in all_notes %}<option value="{{ note }}">{{ note|truncatechars:40 }}</option>{% endfor %}
   </select>
   <button class="tb-btn" onclick="selectVisible()">✓ Selecionar visíveis</button>
   <button class="tb-btn" onclick="clearSelection()">✗ Limpar</button>
@@ -261,7 +274,8 @@
      data-polygons="{{ img.n_polygons }}"
      data-points="{{ img.n_points }}"
      data-rois="{{ img.n_rois }}"
-     data-label="{{ img.image_label|lower }}">
+     data-label="{{ img.image_label|lower }}"
+     data-note="{{ img.image_note }}">
     <div class="card-select" onclick="toggleSelect(this, event)">✓</div>
     <div class="card-delete" title="Excluir aquisição" onclick="deleteAcquisition(this, event, {{ img.id }})">✕</div>
     <div class="card-thumb">
@@ -286,6 +300,8 @@
       <span class="card-label {% if img.image_label %}has-label{% endif %}" data-id="{{ img.id }}" onclick="editLabel(this)">
         {% if img.image_label %}🏷 {{ img.image_label }}{% else %}+ label{% endif %}
       </span>
+      <span class="card-note {% if img.image_note %}has-note{% endif %}" data-id="{{ img.id }}" onclick="editNote(this)"
+            title="{{ img.image_note|default:'Adicionar observação' }}">{% if img.image_note %}📝 {{ img.image_note }}{% else %}+ observação{% endif %}</span>
     </div>
   </a>
   {% endfor %}
@@ -305,7 +321,7 @@
 const CSRF = '{{ csrf_token }}';
 const URLS = {
   exportDataset: "{% url 'ml_dataset_export' %}",
-  exportCls:    "{% url 'export_classification' %}",
+  exportSamples: "{% url 'export_samples' %}",
   exportRois:   "{% url 'export_roi_measurements' %}",
   downloadZip:  "{% url 'data_acquisition_download_zip' %}",
   exportStatus: "{% url 'export_job_status' 'JOBID' %}",
@@ -313,6 +329,7 @@ const URLS = {
 };
 const MAX_ZIP_DOWNLOAD = 30;   // mesmo teto do backend (MAX_ZIP_DOWNLOAD_ACQUISITIONS em views.py)
 function labelUrl(id) { return `/annotations/${id}/label/`; }
+function noteUrl(id) { return `/annotations/${id}/note/`; }
 function deleteUrl(id) { return `/data_acquisition/${id}/delete/`; }
 function setExportProgress(frac, title) {
   const pct = Math.round(Math.max(0, Math.min(1, frac)) * 100);
@@ -351,7 +368,7 @@ function apiJSON(url, obj) {
     body: JSON.stringify(obj) }).then(r => r.json());
 }
 
-/* ── Baixar imagens selecionadas (zip com raw+normalized+rgb) ── */
+/* ── Baixar imagens selecionadas (zip com raw + calibrated + rgb) ── */
 async function downloadSelected(btn) {
   const selected = [...document.querySelectorAll('.card.selected')];
   if (!selected.length) { alert('Selecione pelo menos uma amostra pra baixar.'); return; }
@@ -390,7 +407,9 @@ function filterCards() {
   const q = document.getElementById('search').value.toLowerCase();
   const status = document.getElementById('filter-status').value;
   const label = document.getElementById('filter-label').value.toLowerCase();
+  const note = document.getElementById('filter-note').value;
   sessionStorage.setItem('ann-filter-status', status);
+  sessionStorage.setItem('ann-filter-note', note);
   sessionStorage.setItem('ann-filter-search', q);
   sessionStorage.setItem('ann-filter-label', label);
   let visible = 0;
@@ -399,7 +418,7 @@ function filterCards() {
     const nEllipse = parseInt(c.dataset.ellipses) || 0;
     const nPoly = parseInt(c.dataset.polygons) || 0;
     const nPoint = parseInt(c.dataset.points) || 0;
-    const matchText = c.dataset.name.includes(q);
+    const matchText = c.dataset.name.includes(q) || (c.dataset.note || '').toLowerCase().includes(q);
     const matchStatus =
       status === 'all' ? true :
       status === 'done' ? c.dataset.status === 'done' :
@@ -409,7 +428,8 @@ function filterCards() {
       status === 'poly' ? nPoly > 0 :
       status === 'point' ? nPoint > 0 : true;
     const matchLabel = !label || c.dataset.label === label;
-    const show = matchText && matchStatus && matchLabel;
+    const matchNote = !note || (c.dataset.note || '') === note;
+    const show = matchText && matchStatus && matchLabel && matchNote;
     c.style.display = show ? '' : 'none';
     if (show) visible++;
   });
@@ -419,10 +439,12 @@ window.addEventListener('DOMContentLoaded', () => {
   const s = sessionStorage.getItem('ann-filter-status');
   const q = sessionStorage.getItem('ann-filter-search');
   const l = sessionStorage.getItem('ann-filter-label');
+  const nt = sessionStorage.getItem('ann-filter-note');
+  if (nt) { const sel = document.getElementById('filter-note'); if ([...sel.options].some(o => o.value === nt)) sel.value = nt; }
   if (s) document.getElementById('filter-status').value = s;
   if (q) document.getElementById('search').value = q;
   if (l) { const sel = document.getElementById('filter-label'); if ([...sel.options].some(o => o.value === l)) sel.value = l; }
-  if (s || q || l) filterCards();
+  if (s || q || l || nt) filterCards();
 });
 
 /* ── Selection ── */
@@ -454,17 +476,17 @@ function openModal() {
   // pra treinar segmentacao (ver views.ml_dataset_export).
   const nSeg = selected.filter(c => (parseInt(c.dataset.ellipses) || 0) + (parseInt(c.dataset.polygons) || 0) > 0).length;
   const nBox = selected.filter(c => parseInt(c.dataset.boxes) > 0).length;
-  const nLabel = selected.filter(c => c.dataset.label && c.dataset.label.trim()).length;
+  const nSamples = selected.filter(c => c.dataset.status === 'done').length;
   const nRois = selected.reduce((sum, c) => sum + (parseInt(c.dataset.rois) || 0), 0);
   const n = selected.length;
   document.getElementById('modal-summary').innerHTML = `<strong>${n}</strong> amostra${n > 1 ? 's' : ''} selecionada${n > 1 ? 's' : ''}`;
   document.getElementById('modal-poly-count').textContent = `${nSeg} com elipses/polígonos → .zip`;
   document.getElementById('modal-box-count').textContent = `${nBox} com boxes → .zip`;
-  document.getElementById('modal-cls-count').textContent = `${nLabel} com categoria`;
+  document.getElementById('modal-cls-count').textContent = `${nSamples} imagem(ns) anotada(s) → .zip`;
   document.getElementById('modal-rois-count').textContent = `${nRois} ROI(s) medidos`;
   document.getElementById('btn-seg').disabled = nSeg === 0;
   document.getElementById('btn-det').disabled = nBox === 0;
-  document.getElementById('btn-cls').disabled = nLabel === 0;
+  document.getElementById('btn-cls').disabled = nSamples === 0;
   document.getElementById('btn-rois').disabled = nRois === 0;
   document.getElementById('export-modal').classList.add('open');
 }
@@ -480,13 +502,53 @@ async function doExport(type) {
   if (type === 'rois') {
     await runExportJob(URLS.exportRois, { ids }, 'Gerando CSV das medições…');
   } else if (type === 'cls') {
-    await runExportJob(URLS.exportCls, { ids }, 'Gerando classificação…');
+    // uma pasta por imagem: bandas em reflectância + anotacoes.json -- ver views.export_samples
+    await runExportJob(URLS.exportSamples, { ids }, 'Exportando amostras…');
   } else {
     // seg/det: .zip completo (imagens + labels + data.yaml) pra treinar o YOLO
     // fora do Pi -- ver views.ml_dataset_export e a ferramenta de treino em Machine Learning.
     await runExportJob(URLS.exportDataset, { task: type, ids, val_split: 0.2 },
                        type === 'seg' ? 'Gerando dataset de segmentação…' : 'Gerando dataset de detecção…');
   }
+}
+
+/* ── Observação inline edit ── */
+function editNote(el) {
+  const id = el.dataset.id;
+  const card = el.closest('.card');
+  const cur = card ? (card.dataset.note || '') : '';
+  const inp = document.createElement('textarea');
+  inp.className = 'label-input note-input'; inp.value = cur; inp.rows = 2;
+  inp.placeholder = 'ex: lote A, safra 2025, câmera nova… (Enter salva, Shift+Enter quebra linha)';
+  el.replaceWith(inp); inp.focus(); inp.select();
+  let done = false;
+
+  function save(keep) {
+    if (done) return; done = true;
+    const note = keep ? cur : inp.value.trim();
+    if (!keep) apiJSON(noteUrl(id), { note }).then(() => {
+      const sel = document.getElementById('filter-note');
+      if (note && ![...sel.options].some(o => o.value === note)) {
+        const opt = document.createElement('option');
+        opt.value = note; opt.textContent = note.length > 40 ? note.slice(0, 39) + '…' : note;
+        sel.appendChild(opt);
+      }
+    });
+    const span = document.createElement('span');
+    span.className = 'card-note' + (note ? ' has-note' : '');
+    span.dataset.id = id;
+    span.title = note || 'Adicionar observação';
+    span.onclick = function() { editNote(this); };
+    span.textContent = note ? '📝 ' + note : '+ observação';
+    inp.replaceWith(span);
+    if (card) card.dataset.note = note;
+    filterCards();
+  }
+  inp.addEventListener('blur', () => save(false));
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(false); }
+    if (e.key === 'Escape') save(true);
+  });
 }
 
 /* ── Label inline edit ── */

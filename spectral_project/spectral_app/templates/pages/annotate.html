@@ -40,7 +40,7 @@
 
     .toolbar {
       background: var(--panel2); border-bottom: 1px solid var(--line);
-      padding: 8px 18px; display: flex; gap: 10px; align-items: center; flex-shrink: 0; flex-wrap: wrap;
+      padding: 8px 18px; display: flex; gap: 12px; align-items: flex-end; flex-shrink: 0; flex-wrap: wrap;
     }
     .btn { padding: 5px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: .83rem; font-weight: 600; }
     .btn-save { background: var(--green); color: #fff; }
@@ -58,7 +58,13 @@
     .btn-yolo:hover { background: #e6d5fc; }
     .btn-otsu:disabled, .btn-yolo:disabled { opacity: .4; cursor: default; }
 
-    .tool-group { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+    /* cada grupo: rótulo em cima + fileira de botões com altura fixa; a toolbar
+       alinha tudo pela base (align-items:flex-end), então as fileiras ficam na
+       mesma linha e os rótulos numa linha acima, mesmo com alturas diferentes */
+    .tool-group { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .tool-row { display: flex; align-items: stretch; height: 30px; gap: 6px; }
+    .tool-row > .btn { display: inline-flex; align-items: center; padding: 5px 11px; }
+    .toolbar-status { height: 30px; display: flex; align-items: center; }
     .tool-group-label { font-size: .6rem; color: var(--muted2); text-transform: uppercase; letter-spacing: .07em; user-select: none; }
     .mode-group .btn { border-radius: 0; }
 
@@ -99,7 +105,7 @@
     .modal-confirm { background: #dc2626; color: #fff; border: none; padding: 7px 18px; border-radius: 7px; cursor: pointer; font-size: .85rem; font-weight: 600; }
     .modal-confirm:hover { background: #b91c1c; }
 
-    .mode-group { display: flex; gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+    .mode-group { display: flex; gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; height: 30px; }
     .mode-btn { padding: 5px 14px; border: none; cursor: pointer; font-size: .83rem; font-weight: 600; background: var(--panel); color: var(--muted); transition: background .15s, color .15s; }
     .mode-btn:hover { background: var(--panel2); color: var(--ink); }
     .mode-btn.active-box { background: #e3f6e9; color: #1c7a3d; }
@@ -108,13 +114,20 @@
     .mode-btn.active-point { background: #fde9d8; color: #c2540a; }
 
     .box-count { margin-left: auto; font-size: .82rem; color: var(--muted); }
-    .hint { font-size: .72rem; color: var(--muted2); max-width: 420px; }
+    .hint { font-size: .72rem; color: var(--muted2); line-height: 1.25; }
+    /* dica da ferramenta atual: etiqueta fixa no canto da área da imagem (fora do
+       scroll do canvas), em vez de ocupar espaço na toolbar */
+    .canvas-area { flex: 1; display: flex; position: relative; min-width: 0; }
+    .canvas-hint { position: absolute; left: 12px; bottom: 12px; max-width: calc(100% - 24px); z-index: 2;
+                   background: rgba(15,17,23,.82); color: #d1d5db; border: 1px solid rgba(255,255,255,.12);
+                   padding: 5px 10px; border-radius: 7px; pointer-events: none; }
     .saved-msg { font-size: .8rem; color: var(--green); opacity: 0; transition: opacity .4s; font-weight: 600; }
 
     .main { display: flex; flex: 1; overflow: hidden; }
 
-    /* Painel das 8 bandas cruas, do lado direito da imagem RGB -- so consulta
-       visual (checar saturacao banda a banda), o rotulo continua sendo feito
+    /* Painel das 8 bandas (calibradas -- calibrated/ -- ou cruas se a banda nao
+       tem calibracao), do lado direito da imagem RGB -- so consulta
+       visual, o rotulo continua sendo feito
        por contorno (ROI) na lista da esquerda, nao aqui. Uma banda por linha,
        empilhadas com scroll VERTICAL (nao horizontal). */
     .bands-panel {
@@ -131,6 +144,25 @@
     }
     .band-thumb:hover img { border-color: var(--c); transform: scale(1.03); }
     .band-thumb span { font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+    /* Curva espectral da forma selecionada: mesmo tamanho/borda de uma miniatura de banda */
+    .spectrum { margin-bottom: 16px; }
+    .spectrum-box { position: relative; width: 100%; aspect-ratio: 8 / 5; border-radius: 6px;
+                    border: 2px solid var(--line); background: var(--panel2); overflow: hidden; }
+    .spectrum-box svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    .spectrum-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+                      text-align: center; padding: 0 22px; font-size: .78rem; color: var(--muted); line-height: 1.4; }
+    .spectrum-empty[hidden] { display: none; }
+    .spectrum-caption { display: block; text-align: center; margin-top: 3px; font-size: .72rem; color: var(--muted); }
+    .spectrum-grid { stroke: var(--line); stroke-width: 1; }
+    .spectrum-axis { fill: var(--muted); font-size: 10px; font-family: inherit; font-variant-numeric: tabular-nums; }
+    .spectrum-line { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .spectrum-dot { stroke: var(--panel2); stroke-width: 2; }
+    .spectrum-hit { fill: transparent; }
+    .spectrum-tip { position: absolute; pointer-events: none; transform: translate(-50%, calc(-100% - 10px));
+                    background: var(--ink); color: var(--panel); font-size: .72rem; padding: 3px 8px;
+                    border-radius: 5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .spectrum-tip[hidden] { display: none; }
 
     .sidebar { width: 340px; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
     .table-header { display: grid; grid-template-columns: 58px 90px 1fr; border-bottom: 2px solid var(--line); flex-shrink: 0; }
@@ -205,19 +237,24 @@
     .box-del:hover { color: #dc2626; background: #fdeaea; }
 
     /* fundo escuro pra visualizar a foto (mesmo padrao das outras telas: stream/refl/geo) */
-    .canvas-wrap { flex: 1; overflow: auto; background: #0b0d13; display: flex; align-items: flex-start; justify-content: flex-start; padding: 16px; }
+    .canvas-wrap { flex: 1; overflow: auto; background: #0b0d13; display: flex; align-items: flex-start; justify-content: flex-start; padding: 16px; position: relative; }
     /* max-width < 100% deixa a imagem de anotacao um pouco menor que o
        espaco disponivel (nao ocupa mais a tela toda em tamanho nativo) --
        o mapeamento de clique/desenho pro pixel real da imagem (ver
        getBoundingClientRect() no JS) ja leva essa escala em conta sozinho,
        entao desenhar ROI continua preciso mesmo com o canvas reduzido. */
-    #canvas { display: block; max-width: 92%; height: auto; image-rendering: pixelated; }
+    /* flex: none -- como item flex, o canvas era encolhido de volta ao tamanho
+       natural da imagem e o zoom acima de 100% não tinha efeito nenhum */
+    #canvas { display: block; flex: none; max-width: 92%; height: auto; image-rendering: pixelated; }
     body.mode-box #canvas { cursor: crosshair; }
     body.mode-ellipse #canvas { cursor: crosshair; }
     body.mode-polygon #canvas { cursor: crosshair; }
     body.mode-point #canvas { cursor: copy; }
-    .zoom-ctl { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+    .zoom-ctl { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; height: 30px; }
     .zoom-ctl .mode-btn { min-width: 36px; }
+    .mode-btn.active-zoom { background: var(--blue-soft); color: var(--blue); }
+    /* !important pra ganhar do canvas.style.cursor que o modo polígono/elipse seta inline */
+    .canvas-wrap.zoom-armed #canvas { cursor: zoom-in !important; }
   </style>
 </head>
 <body class="mode-box">
@@ -234,8 +271,8 @@
 
 <div class="toolbar">
   <div class="tool-group">
-    <span class="tool-group-label" style="visibility:hidden">·</span>
-    <div style="display:flex; gap:6px">
+    <span class="tool-group-label">Edição</span>
+    <div class="tool-row">
       <button class="btn btn-save" onclick="saveAnnotations()" data-tip="Salvar anotações e calcular os ROIs  (Ctrl+S)">💾 Salvar</button>
       <button class="btn btn-undo" id="btn-undo" onclick="undo()" disabled data-tip="Desfazer última ação  (Ctrl+Z)">↩ Desfazer</button>
       <button class="btn btn-redo" id="btn-redo" onclick="redo()" disabled data-tip="Refazer ação desfeita  (Ctrl+Y)">↪ Refazer</button>
@@ -253,24 +290,28 @@
     </div>
   </div>
 
-  <span class="hint" id="tool-hint">Arraste para criar box | Dir para remover</span>
-  <span class="saved-msg" id="saved-msg">✓ Salvo!</span>
-  <div class="zoom-ctl">
+  <span class="saved-msg toolbar-status" id="saved-msg">✓ Salvo!</span>
+  <div class="tool-group">
+    <span class="tool-group-label">Zoom</span>
+    <div class="zoom-ctl">
     <button class="mode-btn" onclick="zoomOut()" data-tip="Diminuir zoom  (Ctrl + roda)">−</button>
     <button class="mode-btn" id="zoom-label" onclick="zoomFit()" data-tip="Ajustar à tela">Ajustar</button>
     <button class="mode-btn" onclick="zoomIn()" data-tip="Aumentar zoom  (Ctrl + roda)">+</button>
+    <button class="mode-btn" id="zoom-rect-btn" onclick="toggleZoomRect()" data-tip="Zoom na região: arraste um retângulo  (Z)">🔍</button>
+    </div>
   </div>
 
   <div class="tool-group">
     <span class="tool-group-label">Automático</span>
     <div class="mode-group">
       <button id="btn-auto-otsu" class="btn btn-otsu" onclick="autoSegment('otsu')" data-tip="Segmentação automática por limiar de Otsu">⚗ Otsu</button>
+      <button id="btn-auto-sam" class="btn btn-otsu" onclick="autoSegmentSam()" data-tip="SAM: acha as amostras com a mesma assinatura espectral de um polígono/elipse de referência">🎯 SAM</button>
       <button id="btn-auto-boxpoly" class="btn btn-otsu" onclick="boxesToPolygons()" data-tip="Gera polígonos a partir das boxes existentes (Otsu por box)">▢→⬡</button>
       <button class="btn btn-yolo" onclick="openIAModal()" data-tip="Abrir painel de modelos de IA">🤖 IA</button>
     </div>
   </div>
 
-  <span class="box-count" id="box-count">0 boxes</span>
+  <span class="box-count toolbar-status" id="box-count">0 boxes</span>
 </div>
 
 <div class="main">
@@ -278,14 +319,24 @@
     <div class="table-header"><div>Nº</div><div>Posição</div><div>Categoria</div></div>
     <div class="box-list" id="box-list"></div>
   </div>
-  <div class="canvas-wrap"><canvas id="canvas"></canvas></div>
+  <div class="canvas-area">
+    <div class="canvas-wrap"><canvas id="canvas"></canvas></div>
+    <span class="hint canvas-hint" id="tool-hint">Arraste para criar box | Dir para remover</span>
+  </div>
   <div class="bands-panel">
-    <h3>8 bandas (cru)</h3>
+    <h3>Curva espectral</h3>
+    <div class="spectrum">
+      <div class="spectrum-box" id="spectrum-box">
+        <div class="spectrum-empty" id="spectrum-empty">Selecione uma anotação pra ver a reflectância média dela em cada banda.</div>
+      </div>
+      <span class="spectrum-caption" id="spectrum-caption">reflectância calibrada (%)</span>
+    </div>
+    <h3 title="{% if thumbs_calibrated %}Reflectância calibrada ({{ refl_mode_label|lower }}): a mesma cor = a mesma reflectância em qualquer banda (0 a 100%).{% else %}Algumas bandas sem calibração aparecem cruas.{% endif %}">8 bandas ({% if thumbs_calibrated %}calibradas · {{ refl_mode_label|lower }}{% else %}cru{% endif %})</h3>
     <div class="bands-grid">
       {% for b in band_thumbs %}
-      <a class="band-thumb" style="--c: {{ b.color }}" href="{{ b.url }}" target="_blank" title="{{ b.nm }}nm — abrir em tamanho real">
+      <a class="band-thumb" style="--c: {{ b.color }}" href="{{ b.url }}" target="_blank" title="{{ b.nm }}nm {% if b.calibrated %}calibrada{% else %}crua{% endif %} — abrir em tamanho real">
         <img src="{{ b.url }}" alt="{{ b.nm }}nm" loading="lazy">
-        <span>{{ b.nm }}nm</span>
+        <span>{{ b.nm }}nm{% if not b.calibrated %} · cru{% endif %}</span>
       </a>
       {% endfor %}
     </div>
@@ -324,6 +375,8 @@
     save:      '/annotations/' + ACQ_ID + '/save/',
     otsu:      '/annotations/' + ACQ_ID + '/auto/otsu/',
     boxpoly:   '/annotations/' + ACQ_ID + '/auto/boxes_to_polygons/',
+    sam:       '/annotations/' + ACQ_ID + '/auto/sam/',
+    spectrum:  '/annotations/' + ACQ_ID + '/spectrum/',
     det:       '/annotations/' + ACQ_ID + '/auto/det/',
     yolo:      '/annotations/' + ACQ_ID + '/auto/yolo/',
     classify:  '/annotations/' + ACQ_ID + '/auto/classify/',
@@ -349,6 +402,10 @@
   let editingVertIdx = -1;
   let hoverVertIdx   = -1, hoverEdgeIdx = -1;
   let currentPoly    = [];
+  // Lasso do polígono: clique começa, o contorno segue o mouse (sem segurar)
+  // e o próximo clique fecha. Segurar e arrastar também funciona (fecha ao
+  // soltar). polyPress = o mousedown que começou o desenho, até o mouseup dele.
+  let polyPress = null, polyCursor = null, lastPolyFinish = 0;
 
   // Polígono e elipse têm o mesmo jeito de editar (lista de pontos
   // arrastável), só moram em arrays/seleção separados -- estas funções
@@ -423,47 +480,232 @@
   const ctx    = canvas.getContext('2d');
   const img    = new Image();
 
-  img.onload = () => { canvas.width = img.naturalWidth; canvas.height = img.naturalHeight; redraw(); };
+  img.onload = () => { canvas.width = img.naturalWidth; canvas.height = img.naturalHeight; applyZoom(null); redraw(); };
 
   // ── Zoom ──────────────────────────────────────────────────────────────────
   // Só muda o tamanho exibido do canvas: canvasCoords() já converte o clique
   // pela proporção entre tamanho exibido e real, então desenho e seleção
   // continuam no pixel certo. zoomLevel === null = ajustar à tela.
-  const ZOOM_MIN = 0.25, ZOOM_MAX = 8, ZOOM_STEP = 1.25;
+  // Todo zoom é ancorado num ponto da imagem (ix,iy) que fica parado sob o
+  // ponto (vx,vy) da área visível -- cursor (Ctrl+roda), centro (botões) ou
+  // centro do retângulo (zoom por região).
+  const ZOOM_MIN = 0.1, ZOOM_MAX = 16, ZOOM_STEP = 1.25;
+  const WRAP_PAD = 16;   // padding do .canvas-wrap
   let zoomLevel = null;
   const canvasWrap = document.querySelector('.canvas-wrap');
 
-  function applyZoom(level) {
-    const fx = (canvasWrap.scrollLeft + canvasWrap.clientWidth / 2) / Math.max(1, canvasWrap.scrollWidth);
-    const fy = (canvasWrap.scrollTop + canvasWrap.clientHeight / 2) / Math.max(1, canvasWrap.scrollHeight);
+  function clampZoom(z) { return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z)); }
+  function currentScale() { return canvas.clientWidth / canvas.width; }
+  function fitScale() {
+    return Math.min((canvasWrap.clientWidth - 2 * WRAP_PAD) / canvas.width,
+                    (canvasWrap.clientHeight - 2 * WRAP_PAD) / canvas.height);
+  }
+  function viewCenterAnchor() {
+    const s = currentScale();
+    const vx = canvasWrap.clientWidth / 2, vy = canvasWrap.clientHeight / 2;
+    return { ix: (canvasWrap.scrollLeft + vx - canvas.offsetLeft) / s,
+             iy: (canvasWrap.scrollTop  + vy - canvas.offsetTop)  / s, vx, vy };
+  }
+
+  function applyZoom(level, anchor) {
+    if (level !== null && !anchor) anchor = viewCenterAnchor();
     zoomLevel = level;
-    if (level === null) { canvas.style.width = ''; canvas.style.maxWidth = ''; }
-    else { canvas.style.maxWidth = 'none'; canvas.style.width = (canvas.width * level) + 'px'; }
+    const s = level === null ? Math.max(0.01, fitScale()) : level;
+    canvas.style.maxWidth = 'none';
+    canvas.style.width = (canvas.width * s) + 'px';
     document.getElementById('zoom-label').textContent = level === null ? 'Ajustar' : Math.round(level * 100) + '%';
-    requestAnimationFrame(() => {
-      canvasWrap.scrollLeft = fx * canvasWrap.scrollWidth - canvasWrap.clientWidth / 2;
-      canvasWrap.scrollTop  = fy * canvasWrap.scrollHeight - canvasWrap.clientHeight / 2;
-    });
+    // offsetLeft/offsetTop forçam o layout já com o tamanho novo
+    if (level === null) { canvasWrap.scrollLeft = 0; canvasWrap.scrollTop = 0; return; }
+    canvasWrap.scrollLeft = canvas.offsetLeft + anchor.ix * s - anchor.vx;
+    canvasWrap.scrollTop  = canvas.offsetTop  + anchor.iy * s - anchor.vy;
   }
-  function zoomStep(factor) {
-    const base = zoomLevel ?? (canvas.clientWidth / canvas.width);
-    applyZoom(Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, base * factor)));
-  }
+  function zoomStep(factor, anchor) { applyZoom(clampZoom(currentScale() * factor), anchor); }
   function zoomIn()  { zoomStep(ZOOM_STEP); }
   function zoomOut() { zoomStep(1 / ZOOM_STEP); }
   function zoomFit() { applyZoom(null); }
+  window.addEventListener('resize', () => { if (zoomLevel === null) applyZoom(null); });
+
   canvasWrap.addEventListener('wheel', e => {
     if (!e.ctrlKey) return;
     e.preventDefault();
-    if (e.deltaY < 0) zoomIn(); else zoomOut();
+    const r = canvasWrap.getBoundingClientRect();
+    const [ix, iy] = canvasCoords(e);
+    zoomStep(e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP,
+             { ix, iy, vx: e.clientX - r.left - canvasWrap.clientLeft, vy: e.clientY - r.top - canvasWrap.clientTop });
   }, { passive: false });
+
+  // ── Zoom por região (retângulo) ───────────────────────────────────────────
+  // Ferramenta de uso único: arma (botão 🔍 ou Z), arrasta um retângulo, dá
+  // zoom pra ele caber na tela e volta pra ferramenta de anotação que estava.
+  // Listeners em fase de captura + stopImmediatePropagation: enquanto armado,
+  // os eventos não chegam nos handlers de desenho/seleção do canvas.
+  let zoomRectArmed = false, zoomRect = null, swallowClick = false;
+
+  function toggleZoomRect(on = !zoomRectArmed) {
+    zoomRectArmed = on; zoomRect = null;
+    canvasWrap.classList.toggle('zoom-armed', on);
+    document.getElementById('zoom-rect-btn').classList.toggle('active-zoom', on);
+    redraw();
+  }
+  function updateZoomRect(e) {
+    const [x, y] = canvasCoords(e);
+    zoomRect.x1 = Math.max(0, Math.min(canvas.width, x));
+    zoomRect.y1 = Math.max(0, Math.min(canvas.height, y));
+    redraw();
+  }
+  function finishZoomRect() {
+    const { x0, y0, x1, y1 } = zoomRect;
+    const w = Math.abs(x1 - x0), h = Math.abs(y1 - y0);
+    toggleZoomRect(false);
+    const vx = canvasWrap.clientWidth / 2, vy = canvasWrap.clientHeight / 2;
+    if (w < 4 || h < 4) { zoomStep(2, { ix: x0, iy: y0, vx, vy }); return; }   // clique simples: 2x no ponto
+    const level = clampZoom(Math.min((canvasWrap.clientWidth - 2 * WRAP_PAD) / w,
+                                     (canvasWrap.clientHeight - 2 * WRAP_PAD) / h));
+    applyZoom(level, { ix: (x0 + x1) / 2, iy: (y0 + y1) / 2, vx, vy });
+  }
+
+  canvas.addEventListener('mousedown', e => {
+    swallowClick = false;
+    if (!zoomRectArmed || e.button !== 0) return;
+    e.stopImmediatePropagation();
+    const [x, y] = canvasCoords(e);
+    zoomRect = { x0: x, y0: y, x1: x, y1: y };
+  }, true);
+  canvas.addEventListener('mousemove', e => {
+    if (!zoomRectArmed) return;
+    e.stopImmediatePropagation();
+    if (zoomRect) updateZoomRect(e);
+  }, true);
+  // mouseup/mousemove na janela: o arrasto pode terminar fora do canvas
+  window.addEventListener('mousemove', e => { if (zoomRect) updateZoomRect(e); });
+  window.addEventListener('mouseup', e => {
+    if (!zoomRect) return;
+    e.stopImmediatePropagation();
+    swallowClick = true;
+    finishZoomRect();
+  }, true);
+  ['click', 'dblclick'].forEach(t => canvas.addEventListener(t, e => {
+    if (zoomRectArmed || swallowClick) { e.stopImmediatePropagation(); swallowClick = false; }
+  }, true));
+  canvas.addEventListener('contextmenu', e => {   // botão direito cancela a ferramenta
+    if (!zoomRectArmed) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    toggleZoomRect(false);
+  }, true);
   img.src = REF_IMAGE_URL;
+
+
+  // ── Curva espectral da forma selecionada (painel direito) ─────────────────
+  // Pede ao servidor a reflectância média da região em cada banda (mesma conta
+  // do "Calcular ROIs") sempre que a forma selecionada muda -- inclusive ao
+  // mover/editar, com um pequeno atraso pra não disparar a cada pixel arrastado.
+  const SPEC_NM_MIN = 350, SPEC_NM_MAX = 870;
+  const SHAPE_NAMES = { box: 'Box', ellipse: 'Elipse', polygon: 'Polígono', point: 'Ponto' };
+  const SPEC_EMPTY_MSG = 'Selecione uma anotação pra ver a reflectância média dela em cada banda.';
+  let spectrumKey = null, spectrumTimer = null, spectrumData = null, spectrumReq = 0;
+
+  function selectedShape() {
+    const pick = {
+      box:     () => selectedIdx >= 0 && boxes[selectedIdx] && { kind: 'box', idx: selectedIdx,
+                   shape: { shape: 'box', x1: boxes[selectedIdx][0], y1: boxes[selectedIdx][1], x2: boxes[selectedIdx][2], y2: boxes[selectedIdx][3] } },
+      ellipse: () => selectedEllipseIdx >= 0 && ellipses[selectedEllipseIdx] && { kind: 'ellipse', idx: selectedEllipseIdx,
+                   shape: { shape: 'ellipse', points: ellipses[selectedEllipseIdx] } },
+      polygon: () => selectedPolyIdx >= 0 && polygons[selectedPolyIdx] && { kind: 'polygon', idx: selectedPolyIdx,
+                   shape: { shape: 'polygon', points: polygons[selectedPolyIdx] } },
+      point:   () => selectedPtIdx >= 0 && points[selectedPtIdx] && { kind: 'point', idx: selectedPtIdx,
+                   shape: { shape: 'point', x: points[selectedPtIdx][0], y: points[selectedPtIdx][1] } },
+    };
+    // prioridade pro tipo da ferramenta atual; senão, qualquer forma selecionada (ex.: clique na lista)
+    return pick[mode]() || pick.polygon() || pick.ellipse() || pick.box() || pick.point() || null;
+  }
+
+  function scheduleSpectrum() {
+    const sel = selectedShape();
+    const key = sel ? JSON.stringify(sel.shape) : null;
+    if (key === spectrumKey) return;
+    spectrumKey = key;
+    clearTimeout(spectrumTimer);
+    spectrumReq++;                              // descarta resposta pendente de uma seleção anterior
+    if (!sel) { spectrumData = null; renderSpectrum(null, SPEC_EMPTY_MSG); return; }
+    const label = `${SHAPE_NAMES[sel.kind]} ${sel.kind === 'point' ? 'C' : ''}${sel.idx + 1}`;
+    spectrumTimer = setTimeout(async () => {
+      const req = ++spectrumReq;
+      try {
+        const { ok, data } = await apiJSON(URLS.spectrum, { shape: sel.shape });
+        if (req !== spectrumReq) return;
+        if (!ok || data.error) { renderSpectrum(null, data.error || 'Não foi possível calcular a curva.'); return; }
+        if (!data.calibrated) { renderSpectrum(null, 'Projeto sem calibração de reflectância 100%/0% — não dá pra calcular a reflectância.'); return; }
+        spectrumData = { bands: data.bands, label };
+        renderSpectrum(spectrumData);
+      } catch (e) {
+        if (req === spectrumReq) renderSpectrum(null, 'Erro de rede ao calcular a curva.');
+      }
+    }, 250);
+  }
+
+  function renderSpectrum(d, message) {
+    const box = document.getElementById('spectrum-box');
+    const empty = document.getElementById('spectrum-empty');
+    const caption = document.getElementById('spectrum-caption');
+    box.querySelectorAll('svg, .spectrum-tip').forEach(n => n.remove());
+    if (!d) {
+      empty.hidden = false; empty.textContent = message || '';
+      caption.textContent = 'reflectância calibrada (%)';
+      return;
+    }
+    empty.hidden = true;
+    const missing = d.bands.filter(b => b.reflectance == null).length;
+    caption.textContent = `${d.label} · reflectância média (%)` + (missing ? ` · ${missing} banda(s) sem valor` : '');
+
+    const W = box.clientWidth, H = box.clientHeight;
+    const m = { l: 34, r: 12, t: 12, b: 22 };
+    const x = nm => m.l + (nm - SPEC_NM_MIN) / (SPEC_NM_MAX - SPEC_NM_MIN) * (W - m.l - m.r);
+    const y = v => m.t + (1 - Math.max(0, Math.min(100, v)) / 100) * (H - m.t - m.b);
+    const NS = 'http://www.w3.org/2000/svg';
+    const el = (tag, attrs, parent) => {
+      const n = document.createElementNS(NS, tag);
+      Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v));
+      parent.appendChild(n); return n;
+    };
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `Curva espectral de ${d.label}` }, box);
+    [0, 50, 100].forEach(v => {
+      el('line', { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), class: 'spectrum-grid' }, svg);
+      el('text', { x: m.l - 6, y: y(v) + 3, 'text-anchor': 'end', class: 'spectrum-axis' }, svg).textContent = v + '%';
+    });
+    [400, 500, 600, 700, 800].forEach(nm => {
+      el('text', { x: x(nm), y: H - 6, 'text-anchor': 'middle', class: 'spectrum-axis' }, svg).textContent = nm + ' nm';
+    });
+    // linha: interrompida onde a banda não tem valor confiável (saturada/fora da faixa)
+    let path = '', pen = false;
+    d.bands.forEach(b => {
+      if (b.reflectance == null) { pen = false; return; }
+      path += `${pen ? 'L' : 'M'}${x(b.nm).toFixed(1)},${y(b.reflectance).toFixed(1)} `;
+      pen = true;
+    });
+    if (path) el('path', { d: path, class: 'spectrum-line' }, svg);
+
+    const tip = document.createElement('div');
+    tip.className = 'spectrum-tip'; tip.hidden = true; box.appendChild(tip);
+    d.bands.forEach(b => {
+      const has = b.reflectance != null;
+      const cx = x(b.nm), cy = has ? y(b.reflectance) : y(0);
+      if (has) el('circle', { cx, cy, r: 4.5, fill: b.color, class: 'spectrum-dot' }, svg);
+      else el('circle', { cx, cy, r: 4, fill: 'none', stroke: b.color, 'stroke-width': 1.5, 'stroke-dasharray': '2 2' }, svg);
+      const hit = el('circle', { cx, cy, r: 11, class: 'spectrum-hit' }, svg);
+      hit.addEventListener('mouseenter', () => {
+        tip.textContent = `${b.nm} nm · ` + (has ? `${b.reflectance.toFixed(1).replace('.', ',')}%` : 'sem valor (saturada ou fora da faixa)');
+        tip.style.left = Math.max(70, Math.min(W - 70, cx)) + 'px'; tip.style.top = cy + 'px'; tip.hidden = false;
+      });
+      hit.addEventListener('mouseleave', () => { tip.hidden = true; });
+    });
+  }
+  window.addEventListener('resize', () => { if (spectrumData) renderSpectrum(spectrumData); });
 
   // ── Mode switch ───────────────────────────────────────────────────────────
   const HINTS = {
     box:     'Arraste para criar box | Dir para remover',
     ellipse: 'Arraste para criar elipse | Dir para remover',
-    polygon: 'Lasso: arraste | Poly selecionado: arraste vértice | Duplo clique vértice: remove | Duplo clique aresta: insere',
+    polygon: 'Clique pra começar e clique de novo pra fechar (ou arraste) | Esc/Dir: cancela | Duplo clique vértice: remove | Duplo clique aresta: insere',
     point:   'Clique para marcar pixel | Dir para remover',
   };
 
@@ -473,7 +715,7 @@
     // um arrasto so acontece em cenario bem raro (atalho de teclado com o
     // botao do mouse ainda pressionado), mas assim curArr()/curSel() (que
     // seguem o `mode` atual) nunca ficam apontando pro array errado.
-    drawing = false; currentPoly = []; movingPolyIdx = -1; editingVertIdx = -1;
+    drawing = false; currentPoly = []; polyPress = null; movingPolyIdx = -1; editingVertIdx = -1;
     canvas.style.cursor = '';
     ['box','ellipse','poly','point'].forEach(id => {
       document.getElementById('mode-' + id).className = 'mode-btn';
@@ -588,12 +830,26 @@
     if (mode === 'polygon' && vis.polygons) drawSelectedVertices(polygons, selectedPolyIdx);
     if (mode === 'ellipse' && vis.ellipses) drawSelectedVertices(ellipses, selectedEllipseIdx);
 
-    if (mode === 'polygon' && drawing && currentPoly.length > 1) {
-      ctx.beginPath();
-      ctx.moveTo(currentPoly[0][0], currentPoly[0][1]);
-      currentPoly.slice(1).forEach(([x,y]) => ctx.lineTo(x,y));
-      ctx.strokeStyle = '#facc15'; ctx.lineWidth = 1.5;
-      ctx.setLineDash([5,3]); ctx.stroke(); ctx.setLineDash([]);
+    if (mode === 'polygon' && drawing && currentPoly.length) {
+      const lw = 1 / currentScale();   // 1 px de tela, qualquer zoom
+      const [fx, fy] = currentPoly[0];
+      const path = new Path2D();
+      path.moveTo(fx, fy);
+      currentPoly.slice(1).forEach(([x,y]) => path.lineTo(x,y));
+      if (polyCursor) path.lineTo(polyCursor[0], polyCursor[1]);
+      // traçado amarelo contínuo com contorno escuro por baixo: contraste em fundo claro ou escuro
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(0,0,0,.65)'; ctx.lineWidth = 5.5 * lw; ctx.stroke(path);
+      ctx.strokeStyle = '#facc15';         ctx.lineWidth = 3 * lw;   ctx.stroke(path);
+      if (polyCursor && currentPoly.length > 2) {   // por onde vai fechar
+        ctx.beginPath(); ctx.moveTo(polyCursor[0], polyCursor[1]); ctx.lineTo(fx, fy);
+        ctx.strokeStyle = 'rgba(250,204,21,.85)'; ctx.lineWidth = 2 * lw;
+        ctx.setLineDash([5*lw, 4*lw]); ctx.stroke(); ctx.setLineDash([]);
+      }
+      ctx.beginPath(); ctx.arc(fx, fy, 5 * lw, 0, 2*Math.PI);
+      ctx.fillStyle = '#facc15'; ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,.65)'; ctx.lineWidth = 1.5 * lw; ctx.stroke();
+      ctx.lineJoin = 'miter'; ctx.lineCap = 'butt';
     }
 
     if (vis.points) points.forEach(([px, py], i) => {
@@ -610,9 +866,19 @@
       ctx.fillText(`C${i+1}`, px+8, py-6);
     });
 
+    if (zoomRect) {
+      const lw = 2 / currentScale();   // espessura constante na tela, qualquer zoom
+      ctx.setLineDash([6 * lw, 4 * lw]); ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = lw;
+      ctx.strokeRect(zoomRect.x0, zoomRect.y0, zoomRect.x1 - zoomRect.x0, zoomRect.y1 - zoomRect.y0);
+      ctx.fillStyle = 'rgba(56,189,248,.10)';
+      ctx.fillRect(zoomRect.x0, zoomRect.y0, zoomRect.x1 - zoomRect.x0, zoomRect.y1 - zoomRect.y0);
+      ctx.setLineDash([]);
+    }
+
     updateSidebar();
     updateCount();
     updateAIButtons();
+    scheduleSpectrum();
   }
 
   // ── Mouse events ──────────────────────────────────────────────────────────
@@ -626,6 +892,8 @@
       [startX,startY,curX,curY] = [x,y,x,y]; drawing = true; selectedIdx = -1;
       return;
     }
+
+    if (mode === 'polygon' && drawing && !polyPress) { finishPolygon(); return; }
 
     if (mode === 'polygon' || mode === 'ellipse') {
       const arr = curArr(), sel = curSel();
@@ -642,7 +910,8 @@
         redraw(); return;
       }
       if (mode === 'polygon') {
-        currentPoly = [[Math.round(x), Math.round(y)]]; drawing = true;
+        currentPoly = [[Math.round(x), Math.round(y)]]; drawing = true; polyCursor = [x, y];
+        polyPress = { cx: e.clientX, cy: e.clientY, hadSel: sel >= 0, moved: false };
       } else {
         [startX, startY, curX, curY] = [x, y, x, y]; drawing = true;
       }
@@ -674,6 +943,10 @@
     if (mode==='polygon' && drawing) {
       const last=currentPoly[currentPoly.length-1];
       if (Math.hypot(x-last[0],y-last[1])>3) currentPoly.push([Math.round(x),Math.round(y)]);
+      polyCursor = [x, y];
+      // arrasto = andou com o botão pressionado (o laço costuma terminar perto
+      // de onde começou, então não dá pra comparar só o ponto inicial e o final)
+      if (polyPress && Math.hypot(e.clientX - polyPress.cx, e.clientY - polyPress.cy) > 5) polyPress.moved = true;
       redraw(); return;
     }
     if ((mode==='polygon'||mode==='ellipse') && !drawing) {
@@ -699,6 +972,13 @@
       canvas.style.cursor = (mode==='polygon'||mode==='ellipse') && hitTestPoly(x,y,curArr())>=0 ? 'grab' : 'crosshair';
       redraw(); return;
     }
+    if (mode === 'polygon') {
+      if (!drawing || !polyPress) return;   // no modo clique, quem fecha é o próximo mousedown
+      const p = polyPress; polyPress = null;
+      if (p.moved) { finishPolygon(); return; }    // segurou e arrastou
+      if (p.hadSel) { cancelPolygon(); return; }   // clique fora com um polígono selecionado: só desseleciona
+      return;                                      // clique simples: começa o desenho, segue o mouse
+    }
     if (!drawing) return;
     drawing = false;
 
@@ -718,17 +998,23 @@
       redraw(); return;
     }
 
-    if (mode === 'polygon') {
-      if (currentPoly.length >= 6) {
-        const s = simplifyPath(currentPoly, 1.5);
-        if (isClosedSurface(s)) { snapshot(); polygons.push(s); poly_labels.push(''); }
-      }
-      currentPoly = []; redraw();
-    }
   });
+
+  function finishPolygon() {
+    drawing = false; polyPress = null; polyCursor = null; lastPolyFinish = performance.now();
+    if (currentPoly.length >= 6) {
+      const s = simplifyPath(currentPoly, 1.5);
+      if (isClosedSurface(s)) { snapshot(); polygons.push(s); poly_labels.push(''); }
+    }
+    currentPoly = []; redraw();
+  }
+  function cancelPolygon() {
+    drawing = false; polyPress = null; polyCursor = null; currentPoly = []; redraw();
+  }
 
   canvas.addEventListener('contextmenu', e => {
     e.preventDefault();
+    if (mode === 'polygon' && drawing) { cancelPolygon(); return; }
     const [mx,my] = canvasCoords(e);
     if (mode==='box') {
       const h=hitTestBox(mx,my);
@@ -761,6 +1047,7 @@
   canvas.addEventListener('dblclick', e => {
     e.preventDefault();
     if (mode !== 'polygon' && mode !== 'ellipse') return;
+    if (drawing || performance.now() - lastPolyFinish < 500) return;   // foi o clique que fechou o polígono
     const [x, y] = canvasCoords(e);
     const arr = curArr();
     const shapeIdx = curSel() >= 0 ? curSel() : hitTestPoly(x, y, arr);
@@ -941,6 +1228,34 @@
       selectedPolyIdx = polygons.length - 1;
       redraw();
       flashMsg(`✓ ${data.count} contorno(s) gerados`, '#4ade80');
+    } catch(e) {
+      flashMsg(`Erro de rede: ${e.message}`, '#f87171');
+    } finally {
+      btn.disabled = false; btn.textContent = orig;
+    }
+  }
+
+  // SAM (Spectral Angle Mapper): os polígonos/elipses já desenhados viram a
+  // referência espectral; o servidor devolve só as amostras NOVAS (o que cai em
+  // cima de uma forma existente é ignorado), então dá pra rodar de novo sem duplicar.
+  async function autoSegmentSam() {
+    const refs = polygons.length + ellipses.length;
+    if (!refs) {
+      flashMsg('Desenhe pelo menos um polígono ou elipse em volta de uma amostra pra servir de referência.', '#fbbf24');
+      return;
+    }
+    const btn = document.getElementById('btn-auto-sam');
+    btn.disabled = true; const orig = btn.textContent; btn.textContent = '⏳...';
+    try {
+      const { ok, data } = await apiJSON(URLS.sam, { polygons, ellipses });
+      if (!ok || data.error) { flashMsg(`Erro: ${data.error || 'falha'}`, '#f87171'); return; }
+      if (!data.polygons || data.polygons.length === 0) { flashMsg('Nenhuma amostra nova encontrada.', '#fbbf24'); return; }
+      snapshot();
+      polygons.push(...data.polygons);
+      poly_labels.push(...Array(data.polygons.length).fill(''));
+      redraw();
+      const refTxt = refs === 1 ? '1 referência' : `${refs} referências`;
+      flashMsg(`✓ ${data.count} amostra(s) por SAM (${refTxt}, limiar ${data.threshold_deg}°)`, '#4ade80');
     } catch(e) {
       flashMsg(`Erro de rede: ${e.message}`, '#f87171');
     } finally {
@@ -1242,7 +1557,10 @@
     if((e.ctrlKey||e.metaKey)&&(e.key==='s'||e.key==='S')) { e.preventDefault(); saveAnnotations(); return; }
     if((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')) { e.preventDefault(); undo(); return; }
     if((e.ctrlKey||e.metaKey)&&(e.key==='y'||e.key==='Y')) { e.preventDefault(); redo(); return; }
-    if(e.key==='Escape') { closeClearModal(); return; }
+    if(e.key==='Escape') { closeClearModal(); if(zoomRectArmed) toggleZoomRect(false); if(mode==='polygon'&&drawing) cancelPolygon(); return; }
+    if(e.key==='Enter' && mode==='polygon' && drawing) { finishPolygon(); return; }
+    if(e.key==='z'||e.key==='Z') { toggleZoomRect(); return; }
+    if(e.key==='0') { zoomFit(); return; }
     if(e.key==='b'||e.key==='B') setMode('box');
     if(e.key==='e'||e.key==='E') setMode('ellipse');
     if(e.key==='p'||e.key==='P') setMode('polygon');
