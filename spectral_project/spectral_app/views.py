@@ -1766,6 +1766,10 @@ def _normalize_frame(frame, white_mean, dark_mean):
 # em cada pixel do branco/escuro (desvio ~2 niveis no escuro) passaria pra
 # todas as medicoes; a iluminacao varia devagar, entao o blur nao perde nada.
 REFL_PIXEL_BLUR_SIGMA = 2.0
+# Fora da placa branca nao ha referencia: o "branco" ali e o fundo escuro, e
+# dividir por ele inventaria reflectancias absurdas. Pixel com o branco abaixo
+# dessa fracao da mediana do branco na regiao selecionada (bbox) fica sem valor (NaN).
+REFL_PIXEL_MIN_WHITE_FRAC = 0.5
 _pixel_cal_cache = {}            # {chave da calibracao: {nm: (escuro, branco-escuro)}} -- 1 projeto por vez
 _pixel_cal_lock = threading.Lock()
 
@@ -1796,7 +1800,10 @@ def _pixel_calibration(refl, refl0):
         white_f = cv2.GaussianBlur(white.astype(np.float32), (0, 0), REFL_PIXEL_BLUR_SIGMA)
         dark_f = cv2.GaussianBlur(dark.astype(np.float32), (0, 0), REFL_PIXEL_BLUR_SIGMA)
         denom = white_f - dark_f
-        denom[(denom < MIN_REFLECTANCE_RANGE) | saturated] = np.nan
+        bx, by = max(0, refl.bbox_x), max(0, refl.bbox_y)
+        plate = white_f[by:by + max(1, refl.bbox_h), bx:bx + max(1, refl.bbox_w)]
+        off_plate = (white_f < REFL_PIXEL_MIN_WHITE_FRAC * float(np.median(plate))) if plate.size else np.zeros_like(saturated)
+        denom[(denom < MIN_REFLECTANCE_RANGE) | saturated | off_plate] = np.nan
         maps[nm] = (dark_f, denom)
     if not maps:
         return None
@@ -3082,19 +3089,25 @@ def export_classification(request):
 _UNSAFE_NAME_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
 SHAPE_ORDER = ("polygon", "ellipse", "box", "point")   # prioridade da label da AMOSTRA
 
-# notebook que vai junto no zip: monta o DataFrame (1 linha por amostra) a partir
-# das pastas + anotacoes.json -- ponto de partida da analise/treino no PC
-SAMPLES_NOTEBOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "export_kit", "analise_amostras.ipynb")
+# notebook de EXEMPLO que vai junto no zip: mostra como ler as bandas e o
+# anotacoes.json, montar o DataFrame (1 linha por amostra) e recortar as amostras --
+# ponto de partida pra analise/treino que o usuario faz na pasta dele
+SAMPLES_NOTEBOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "export_kit", "exemplo_manipulacao_imagens.ipynb")
+# bibliotecas minimas pra quem recebe o zip (pip install -r requirements.txt)
+SAMPLES_REQUIREMENTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "export_kit", "requirements.txt")
 
 SAMPLES_README = """Amostras -- SpectralCrops
 =========================
 
 anotacoes.json             ÍNDICE ÚNICO de tudo: projetos, imagens, caminhos e amostras.
-analise_amostras.ipynb     abra no Jupyter/VS Code dentro desta pasta: monta um DataFrame
-                           com uma linha por amostra (label, bandeja, projeto, observação,
-                           contornos e a reflectância média em cada banda) e salva
-                           amostras_dataframe.csv. Precisa de: numpy, pandas,
-                           opencv-python, matplotlib.
+exemplo_manipulacao_imagens.ipynb
+                           EXEMPLO de como ler as bandas e o anotacoes.json: monta um
+                           DataFrame com uma linha por amostra (label, bandeja, projeto,
+                           observação, contornos e reflectância média em cada banda),
+                           salva amostras_dataframe.csv e recorta as amostras pra CNN.
+                           Abra no Jupyter/VS Code dentro desta pasta.
+requirements.txt           bibliotecas mínimas pra trabalhar com os dados e o notebook:
+                             pip install -r requirements.txt
 <projeto>/<imagem>/        uma pasta por imagem (bandeja), agrupadas por projeto:
   365nm.png ... 850nm.png  as 8 bandas CALIBRADAS com as referências 100%/0%, PNG 1 canal
                            (cinza) 8 bits: reflectância = valor do pixel / 255
@@ -3354,8 +3367,9 @@ def export_samples(request):
                 zf.writestr("LEIA-ME.txt", SAMPLES_README.format(
                     n_images=len(jobs), n_projects=len(projects), n_samples=n_samples,
                     n_contours=n_contours, counts=count_lines))
-                if os.path.exists(SAMPLES_NOTEBOOK):
-                    zf.write(SAMPLES_NOTEBOOK, os.path.basename(SAMPLES_NOTEBOOK))
+                for extra in (SAMPLES_NOTEBOOK, SAMPLES_REQUIREMENTS):
+                    if os.path.exists(extra):
+                        zf.write(extra, os.path.basename(extra))
         return _write_temp_file(".zip", write)
 
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

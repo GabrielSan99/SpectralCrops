@@ -1,0 +1,12 @@
+# Bibliotecas mínimas pra trabalhar com as amostras exportadas do SpectralCrops
+# (ler as bandas e o anotacoes.json, montar o DataFrame e rodar exemplo_manipulacao_imagens.ipynb).
+#
+#   pip install -r requirements.txt
+#
+# Testado com Python 3.12 e: numpy 2.5, pandas 3.0, opencv-python 5.0,
+# matplotlib 3.11, ipykernel 7.4.
+numpy>=1.24
+pandas>=2.0
+opencv-python>=4.8
+matplotlib>=3.7
+ipykernel>=6.0      # pra rodar o notebook no VS Code / Jupyter
